@@ -23,6 +23,17 @@ namespace PeduliTransit.Bootstrap
         [SerializeField] Transform worldRoot;
         [SerializeField] InteriorAssetSlots interiorSlots;
 
+        [Header("NPC")]
+        [Tooltip("Drag prefab npc_csl_00_character_01f, 02f, dst dari Project window. Kosong = fallback capsule.")]
+        [SerializeField] GameObject[] npcCharacterPrefabs;
+        [SerializeField] RuntimeAnimatorController npcAnimatorController;
+
+        [Header("Player Visual")]
+        [Tooltip("Drag prefab Casual1 (Assets/AnimeGirls/Casual1/Casual1) ke sini")]
+        [SerializeField] GameObject playerVisualPrefab;
+        [SerializeField] Vector3 playerVisualOffset = Vector3.zero;
+        [SerializeField] RuntimeAnimatorController playerAnimatorController;
+
         Canvas _canvas;
         LoginUI _login;
         HubUI _hub;
@@ -78,6 +89,9 @@ namespace PeduliTransit.Bootstrap
             BuildCanvas();
 
             _worldBuilder = new VehicleInteriorBuilder();
+            _worldBuilder.CharacterPrefabs = npcCharacterPrefabs;
+            _worldBuilder.NpcAnimatorController = npcAnimatorController;
+
             if (GetComponent<EventDirector>() == null)
                 _director = gameObject.AddComponent<EventDirector>();
             else
@@ -295,6 +309,10 @@ namespace PeduliTransit.Bootstrap
             var anchor = interiorSlots != null && interiorSlots.interiorAnchor != null
                 ? interiorSlots.interiorAnchor
                 : interiorParent.transform;
+
+            // Pastikan array prefab NPC terbaru (kalau diubah lewat Inspector saat play mode) ikut terpakai.
+            _worldBuilder.CharacterPrefabs = npcCharacterPrefabs;
+            _worldBuilder.NpcAnimatorController = npcAnimatorController;
 
             if (prefab != null)
             {

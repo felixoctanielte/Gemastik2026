@@ -10,6 +10,14 @@ namespace PeduliTransit.World
         readonly List<NpcPassenger> _npcs = new List<NpcPassenger>();
         GameObject _root;
 
+        /// <summary>
+        /// Prefab karakter (npc_csl_00_character_01f, 02f, dst). Di-assign dari GameBootstrap.
+        /// Kalau kosong, fallback ke capsule lama.
+        /// </summary>
+        public GameObject[] CharacterPrefabs;
+
+        public RuntimeAnimatorController NpcAnimatorController;
+
         public Transform Root => _root != null ? _root.transform : null;
         public IReadOnlyList<NpcPassenger> Npcs => _npcs;
 
@@ -43,7 +51,7 @@ namespace PeduliTransit.World
         }
 
         /// <summary>
-        /// Dipakai kalau teman sudah pasang prefab interior Sketchfab — hanya spawn NPC.
+        /// Dipakai kalau teman sudah pasang prefab interior (mis. KRLWrapper) — hanya spawn NPC.
         /// </summary>
         public void BuildNpcsOnly(TransportMode mode, Transform parent)
         {
@@ -90,16 +98,42 @@ namespace PeduliTransit.World
 
         NpcPassenger CreateNpc(NpcRole role, Vector3 pos, bool sitting)
         {
-            var body = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            body.name = $"NPC_{role}";
-            body.transform.SetParent(_root.transform, false);
-            body.transform.position = pos;
-            body.transform.localScale = sitting ? new Vector3(0.7f, 0.55f, 0.7f) : new Vector3(0.7f, 0.9f, 0.7f);
+            GameObject body;
+            bool usingCharacterModel = CharacterPrefabs != null && CharacterPrefabs.Length > 0;
 
-            Object.Destroy(body.GetComponent<Collider>());
+            if (usingCharacterModel)
+            {
+                var prefab = CharacterPrefabs[Random.Range(0, CharacterPrefabs.Length)];
+                body = Object.Instantiate(prefab, _root.transform);
+                body.name = $"NPC_{role}";
 
-            var npc = body.AddComponent<NpcPassenger>();
-            npc.Setup(role, sitting, ColorFor(role));
+                // Model karakter pivot-nya di kaki (y=0), beda dari capsule yang pivot-nya di tengah.
+                body.transform.localPosition = new Vector3(pos.x, 0f, pos.z);
+                // Hadapkan NPC ke tengah gerbong (baris seat kiri hadap kanan, kanan hadap kiri).
+                body.transform.localRotation = Quaternion.Euler(0f, pos.z > 0 ? 180f : 0f, 0f);
+            }
+            else
+            {
+                // Fallback capsule kalau CharacterPrefabs belum di-assign di Inspector.
+                body = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                body.name = $"NPC_{role}";
+                body.transform.SetParent(_root.transform, false);
+                body.transform.position = pos;
+                body.transform.localScale = sitting ? new Vector3(0.7f, 0.55f, 0.7f) : new Vector3(0.7f, 0.9f, 0.7f);
+                Object.Destroy(body.GetComponent<Collider>());
+            }
+
+            var npc = body.GetComponent<NpcPassenger>();
+            if (npc == null)
+                npc = body.AddComponent<NpcPassenger>();
+
+            npc.Setup(
+                role,
+                sitting,
+                ColorFor(role),
+                NpcAnimatorController,
+                tintMaterial: !usingCharacterModel
+            );
             return npc;
         }
 

@@ -17,12 +17,21 @@ namespace PeduliTransit.UI
 
         Text _scoreText;
         Text _modeText;
-        Text _storyTitle;
+        Text _storyTitle;      // now used as the small "name tag" label on the dialog box
         Text _storyBody;
+        Image _storyPortrait;  // character bust shown above/left of the dialog box
         Text _promptText;
         Text _timerText;
         Image _timerFill;
         Text _resultBody;
+
+        // Assign this in the Inspector (or via code right after Init) to set the
+        // default character image shown in the story dialog box.
+        public Sprite defaultSpeakerPortrait;
+
+        // Optional: assign a nicer imported .ttf/.otf here (e.g. Poppins, Nunito, Baloo 2)
+        // for the story dialog text. Leave empty to keep Unity's default font.
+        public Font customFont;
 
         Action _onStoryContinue;
         Action<DecisionOutcome> _onDecision;
@@ -62,31 +71,111 @@ namespace PeduliTransit.UI
 
         void BuildStory()
         {
-            var dim = UiTheme.MakePanel(_canvas, "Story", new Color(0f, 0f, 0f, 0.72f));
+            // Dim background stays full-screen so the world behind is still visible/darkened.
+            var dim = UiTheme.MakePanel(_canvas, "Story", new Color(0f, 0f, 0f, 0.45f));
             UiTheme.Stretch(dim.rectTransform);
             _storyRoot = dim.gameObject;
 
-            var card = UiTheme.MakePanel(dim.transform, "Card", UiTheme.Panel);
-            var rt = card.rectTransform;
-            rt.anchorMin = new Vector2(0.5f, 0.5f);
-            rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(640f, 320f);
+            // Built-in rounded-corner sprite Unity uses for default UI Images — gives us
+            // soft rounded corners without needing a custom art asset.
+            Sprite roundedSprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
 
-            _storyTitle = UiTheme.MakeText(card.transform, "Misi", 26, FontStyle.Bold, TextAnchor.UpperCenter,
-                UiTheme.Accent);
-            _storyTitle.rectTransform.anchoredPosition = new Vector2(0f, -30f);
+            // --- Faint glowing border sitting just behind the card (accent color, low alpha). ---
+            var borderGO = new GameObject("CardGlow", typeof(RectTransform), typeof(Image));
+            borderGO.transform.SetParent(dim.transform, false);
+            var borderImg = borderGO.GetComponent<Image>();
+            borderImg.sprite = roundedSprite;
+            borderImg.type = Image.Type.Sliced;
+            borderImg.raycastTarget = false;
+            borderImg.color = new Color(UiTheme.Accent.r, UiTheme.Accent.g, UiTheme.Accent.b, 0.28f);
+            var brt = borderGO.GetComponent<RectTransform>();
+            brt.anchorMin = new Vector2(0.08f, 0f);
+            brt.anchorMax = new Vector2(0.92f, 0f);
+            brt.pivot = new Vector2(0.5f, 0f);
+            brt.offsetMin = new Vector2(-6f, 34f);
+            brt.offsetMax = new Vector2(6f, 306f);
 
-            _storyBody = UiTheme.MakeText(card.transform, "", 18, FontStyle.Normal, TextAnchor.UpperLeft, UiTheme.Text);
-            UiTheme.SetAnchored(_storyBody.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                new Vector2(-280f, -40f), new Vector2(280f, 100f));
+            // --- Dialog box: rounded, semi-transparent "glass" card, anchored to the BOTTOM. ---
+            var cardGO = new GameObject("Card", typeof(RectTransform), typeof(Image));
+            cardGO.transform.SetParent(dim.transform, false);
+            var cardImg = cardGO.GetComponent<Image>();
+            cardImg.sprite = roundedSprite;
+            cardImg.type = Image.Type.Sliced;
+            cardImg.color = new Color(0.04f, 0.08f, 0.10f, 0.66f); // dark glass, see-through
+            var rt = cardGO.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.08f, 0f);
+            rt.anchorMax = new Vector2(0.92f, 0f);
+            rt.pivot = new Vector2(0.5f, 0f);
+            rt.offsetMin = new Vector2(0f, 40f);
+            rt.offsetMax = new Vector2(0f, 300f); // ~260px tall box
+            var card = cardImg; // keep old local name usable below
 
-            var cont = UiTheme.MakeButton(card.transform, "LANJUT", UiTheme.Accent, new Vector2(180f, 46f));
-            cont.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -120f);
+            // --- Character portrait: pinned to top-left of the card, poking upward above it. ---
+            var portraitGO = new GameObject("Portrait", typeof(RectTransform), typeof(Image));
+            portraitGO.transform.SetParent(card.transform, false);
+            _storyPortrait = portraitGO.GetComponent<Image>();
+            _storyPortrait.preserveAspect = true;
+            _storyPortrait.raycastTarget = false;
+            _storyPortrait.sprite = defaultSpeakerPortrait;
+
+            var prt = _storyPortrait.rectTransform;
+            prt.anchorMin = new Vector2(0f, 1f);
+            prt.anchorMax = new Vector2(0f, 1f);
+            prt.pivot = new Vector2(0f, 0f);
+            prt.sizeDelta = new Vector2(230f, 280f);
+            // Small negative Y dips it 40px INTO the box (overlap), the rest sticks up above the box.
+            prt.anchoredPosition = new Vector2(30f, -40f);
+
+            // --- Name tag / category label pill, top area, to the right of the portrait. ---
+            var nameTagGO = new GameObject("NameTag", typeof(RectTransform), typeof(Image));
+            nameTagGO.transform.SetParent(card.transform, false);
+            var nameTagImg = nameTagGO.GetComponent<Image>();
+            nameTagImg.sprite = roundedSprite;
+            nameTagImg.type = Image.Type.Sliced;
+            nameTagImg.color = UiTheme.Accent;
+            var ntrt = nameTagGO.GetComponent<RectTransform>();
+            ntrt.anchorMin = new Vector2(0f, 1f);
+            ntrt.anchorMax = new Vector2(0f, 1f);
+            ntrt.pivot = new Vector2(0f, 1f);
+            ntrt.sizeDelta = new Vector2(340f, 40f);
+            ntrt.anchoredPosition = new Vector2(280f, -18f);
+
+            _storyTitle = UiTheme.MakeText(nameTagGO.transform, "Misi", 20, FontStyle.Bold, TextAnchor.MiddleCenter,
+                Color.white);
+            UiTheme.Stretch(_storyTitle.rectTransform);
+            AddOutline(_storyTitle, new Color(0f, 0f, 0f, 0.5f));
+            if (customFont != null) _storyTitle.font = customFont;
+
+            // --- Body text: fills the rest of the box, to the right of the portrait. Bigger + easier to read. ---
+            _storyBody = UiTheme.MakeText(card.transform, "", 23, FontStyle.Normal, TextAnchor.UpperLeft,
+                new Color(0.96f, 0.97f, 0.98f, 1f));
+            UiTheme.SetAnchored(_storyBody.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f),
+                new Vector2(280f, 24f), new Vector2(-24f, -66f));
+            _storyBody.lineSpacing = 1.25f;
+            AddOutline(_storyBody, new Color(0f, 0f, 0f, 0.55f));
+            if (customFont != null) _storyBody.font = customFont;
+
+            // --- Continue button: bottom-right corner of the box. ---
+            var cont = UiTheme.MakeButton(card.transform, "LANJUT", UiTheme.Accent, new Vector2(170f, 48f));
+            var crt = cont.GetComponent<RectTransform>();
+            crt.anchorMin = new Vector2(1f, 0f);
+            crt.anchorMax = new Vector2(1f, 0f);
+            crt.pivot = new Vector2(1f, 0f);
+            crt.anchoredPosition = new Vector2(-24f, 18f);
             cont.onClick.AddListener(() =>
             {
                 _storyRoot.SetActive(false);
                 _onStoryContinue?.Invoke();
             });
+        }
+
+        // Small helper: adds a subtle dark outline behind text so it stays readable
+        // over a semi-transparent / busy background.
+        static void AddOutline(Text text, Color color)
+        {
+            var outline = text.gameObject.AddComponent<Outline>();
+            outline.effectColor = color;
+            outline.effectDistance = new Vector2(1.2f, -1.2f);
         }
 
         void BuildPopup()
@@ -169,11 +258,23 @@ namespace PeduliTransit.UI
                 _scoreText.text = $"Skor: {score}";
         }
 
+        // Original 3-arg call sites (e.g. EventDirector.cs) keep working unchanged —
+        // they'll just use defaultSpeakerPortrait for the character image.
         public void ShowStory(string title, string body, Action onContinue)
+        {
+            ShowStory(title, body, onContinue, null);
+        }
+
+        // Optional overload: pass a specific sprite per NPC/incident if you want
+        // different characters to show different portraits later.
+        public void ShowStory(string title, string body, Action onContinue, Sprite portrait)
         {
             _onStoryContinue = onContinue;
             _storyTitle.text = title;
             _storyBody.text = body;
+            if (_storyPortrait != null)
+                _storyPortrait.sprite = portrait != null ? portrait : defaultSpeakerPortrait;
+
             _storyRoot.SetActive(true);
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;

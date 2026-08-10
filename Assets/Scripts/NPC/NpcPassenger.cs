@@ -9,20 +9,76 @@ namespace PeduliTransit.NPC
         public bool IsSitting { get; private set; }
 
         TextMesh _label;
+        Animator _animator;
 
-        public void Setup(NpcRole role, bool sitting, Color color)
+        [Header("Walking")]
+        [SerializeField] float walkSpeed = 0.8f;
+
+        bool _walking;
+
+        public void Setup(
+            NpcRole role,
+            bool sitting,
+            Color color,
+            RuntimeAnimatorController animatorController = null,
+            bool tintMaterial = true)
         {
             Role = role;
             IsSitting = sitting;
 
-            var renderer = GetComponentInChildren<Renderer>();
-            if (renderer != null)
+            // Animator
+            _animator = GetComponentInChildren<Animator>();
+
+            if (_animator == null)
+                _animator = gameObject.AddComponent<Animator>();
+
+            if (animatorController != null)
             {
-                renderer.material = new Material(Shader.Find("Standard"));
-                renderer.material.color = color;
+                _animator.runtimeAnimatorController = animatorController;
+                _animator.applyRootMotion = false;
+            }
+
+            // Material
+            if (tintMaterial)
+            {
+                var renderer = GetComponentInChildren<Renderer>();
+
+                if (renderer != null)
+                {
+                    renderer.material = new Material(Shader.Find("Standard"));
+                    renderer.material.color = color;
+                }
             }
 
             EnsureLabel(role.ToString());
+
+            // Kalau berdiri → jalan
+            // Kalau duduk → diam
+            SetWalking(!sitting);
+        }
+
+        void SetWalking(bool walking)
+        {
+            _walking = walking;
+
+            if (_animator == null)
+                return;
+
+            if (_animator.runtimeAnimatorController == null)
+                return;
+
+            // Controller lu sekarang cuma punya animation Walk,
+            // jadi langsung play state tersebut.
+            _animator.Play("HumanF@Walk01_Forward", 0, 0f);
+        }
+
+        void Update()
+        {
+            if (!_walking)
+                return;
+
+            // Gerakkan NPC ke depan
+            transform.position += transform.forward * walkSpeed * Time.deltaTime;
         }
 
         void EnsureLabel(string text)
@@ -32,7 +88,8 @@ namespace PeduliTransit.NPC
 
             var go = new GameObject("Label");
             go.transform.SetParent(transform, false);
-            go.transform.localPosition = new Vector3(0f, 1.35f, 0f);
+            go.transform.localPosition = new Vector3(0f, 1.85f, 0f);
+
             _label = go.AddComponent<TextMesh>();
             _label.text = text;
             _label.characterSize = 0.08f;
@@ -46,6 +103,7 @@ namespace PeduliTransit.NPC
         {
             if (_label == null || Camera.main == null)
                 return;
+
             _label.transform.rotation = Quaternion.LookRotation(
                 _label.transform.position - Camera.main.transform.position);
         }
@@ -53,8 +111,10 @@ namespace PeduliTransit.NPC
         public void Highlight(bool on)
         {
             var renderer = GetComponentInChildren<Renderer>();
+
             if (renderer == null)
                 return;
+
             renderer.material.color = on
                 ? Color.Lerp(renderer.material.color, Color.yellow, 0.55f)
                 : renderer.material.color;
