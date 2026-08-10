@@ -308,6 +308,9 @@ MonoBehaviour:
   - {fileID: 526703752650664947, guid: 0c5c8c2d8785aa5429a0132d246895bc, type: 3}
   - {fileID: 3752903298859641752, guid: 70b9bb89dccf2f34c85f8887382e4d6b, type: 3}
   npcAnimatorController: {fileID: 9100000, guid: 909da0d784345484ebc66c97f8aa263c, type: 2}
+  playerVisualPrefab: {fileID: 0}
+  playerVisualOffset: {x: 0, y: 0, z: 0}
+  playerAnimatorController: {fileID: 0}
 --- !u!1 &100000051
 GameObject:
   m_ObjectHideFlags: 0
@@ -454,7 +457,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   krlInteriorPrefab: {fileID: 1886863802916615385, guid: 76267f5e75d680f44bcbdd80a1f33d27, type: 3}
-  busInteriorPrefab: {fileID: 0}
+  busInteriorPrefab: {fileID: 2285518364327165311, guid: ff19935309d87384387c06e0969b853e, type: 3}
   angkutanInteriorPrefab: {fileID: 0}
   interiorAnchor: {fileID: 100000142}
   playerSpawn: {fileID: 100000152}
