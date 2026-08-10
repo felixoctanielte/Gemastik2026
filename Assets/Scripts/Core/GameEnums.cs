@@ -27,7 +27,10 @@ namespace PeduliTransit.Core
     {
         Yes,
         No,
-        Timeout
+        Timeout,
+        WrongReport,
+        Negur,
+        Cancel
     }
 
     public enum NpcRole
@@ -37,9 +40,20 @@ namespace PeduliTransit.Core
         PrioritySeatAbuse,
         PhoneVolume,
         HarassmentHint,
+        Fighting,
         Pregnant,
         CarryingChild,
         Disability,
-        Elderly
+        Elderly,
+        Security,
+        TicketOfficer,
+        DriverAssistant
+    }
+
+    public enum ResponderKind
+    {
+        Security,
+        TicketOfficer,
+        DriverAssistant
     }
 }

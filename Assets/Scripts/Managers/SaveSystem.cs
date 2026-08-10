@@ -54,7 +54,10 @@ namespace PeduliTransit.Managers
         {
             PlayerPrefs.SetString(SettingsKey, JsonUtility.ToJson(settings));
             PlayerPrefs.Save();
-            AudioListener.volume = Mathf.Clamp01(settings.masterVolume);
+            if (PeduliTransit.Audio.AudioManager.Instance != null)
+                PeduliTransit.Audio.AudioManager.Instance.ApplyVolumes();
+            else
+                AudioListener.volume = settings.muteAll ? 0f : Mathf.Clamp01(settings.masterVolume);
         }
 
         public static List<LeaderboardEntry> LoadLeaderboard()

@@ -57,7 +57,7 @@ namespace PeduliTransit.Managers
 
         public List<LeaderboardEntry> GetNeedsImprovement()
         {
-            // Framing edukatif: skor terendah / paling sering perlu belajar lagi
+
             return SaveSystem.LoadLeaderboard()
                 .OrderBy(e => e.totalScore)
                 .ThenBy(e => e.correctReports + e.correctInitiatives)

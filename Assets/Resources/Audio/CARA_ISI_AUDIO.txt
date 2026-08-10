@@ -1,0 +1,11 @@
+﻿ISI FILE AUDIO DI SINI
+======================
+Cara 1 (paling mudah):
+  Unity menu: PeduliTransit → Create Audio Library Asset
+  Lalu drag AudioClip ke slot BGM/SFX di Inspector.
+
+Cara 2 (otomatis by nama file):
+  Bgm/: Hub.wav, GameplayKrl.wav, GameplayBus.wav, GameplayAngkot.wav, Result.wav
+  Sfx/: UiClick.wav, ScorePlus.wav, ScoreMinus.wav, LoudTalking.wav, ... (nama = enum SfxId)
+
+Format: .wav / .ogg / .mp3 (disarankan wav atau ogg).

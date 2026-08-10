@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using PeduliTransit.Core;
 using PeduliTransit.Data;
 using UnityEngine;
@@ -13,38 +14,50 @@ namespace PeduliTransit.UI
         GameObject _hudRoot;
         GameObject _storyRoot;
         GameObject _popupRoot;
+        GameObject _choiceRoot;
         GameObject _resultRoot;
 
         Text _scoreText;
         Text _modeText;
-        Text _storyTitle;      // now used as the small "name tag" label on the dialog box
+        Text _storyTitle;
         Text _storyBody;
-        Image _storyPortrait;  // character bust shown above/left of the dialog box
+        Image _storyPortrait;
         Text _promptText;
         Text _timerText;
         Image _timerFill;
         Text _resultBody;
+        Text _choicePrompt;
 
-        // Assign this in the Inspector (or via code right after Init) to set the
-        // default character image shown in the story dialog box.
         public Sprite defaultSpeakerPortrait;
-
-        // Optional: assign a nicer imported .ttf/.otf here (e.g. Poppins, Nunito, Baloo 2)
-        // for the story dialog text. Leave empty to keep Unity's default font.
         public Font customFont;
+
+        PhoneWhatsAppUI _phone;
 
         Action _onStoryContinue;
         Action<DecisionOutcome> _onDecision;
+        Action<bool> _onPriorityChoice;
         Coroutine _timerRoutine;
         bool _decisionLocked;
 
         public void Init(Transform canvas)
         {
             _canvas = canvas;
+            UiTheme.EnsureFullscreenCanvas(canvas);
+
+            if (defaultSpeakerPortrait == null)
+                defaultSpeakerPortrait = UiAssets.EduPortrait;
+
             BuildHud();
             BuildStory();
             BuildPopup();
+            BuildPriorityChoice();
             BuildResult();
+
+            _phone = gameObject.GetComponent<PhoneWhatsAppUI>();
+            if (_phone == null)
+                _phone = gameObject.AddComponent<PhoneWhatsAppUI>();
+            _phone.Build(canvas);
+
             HideAll();
         }
 
@@ -52,35 +65,52 @@ namespace PeduliTransit.UI
         {
             var root = UiTheme.MakePanel(_canvas, "Hud", new Color(0f, 0f, 0f, 0f));
             UiTheme.Stretch(root.rectTransform);
+            root.raycastTarget = false;
             _hudRoot = root.gameObject;
 
             _modeText = UiTheme.MakeText(root.transform, "MODE", 20, FontStyle.Bold, TextAnchor.UpperLeft, UiTheme.Teal);
+            _modeText.raycastTarget = false;
             UiTheme.SetAnchored(_modeText.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f),
                 new Vector2(20f, -50f), new Vector2(300f, -16f));
 
             _scoreText = UiTheme.MakeText(root.transform, "Skor: 0", 22, FontStyle.Bold, TextAnchor.UpperRight,
                 UiTheme.Accent);
+            _scoreText.raycastTarget = false;
             UiTheme.SetAnchored(_scoreText.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f),
                 new Vector2(-220f, -50f), new Vector2(-20f, -16f));
 
-            var hint = UiTheme.MakeText(root.transform, "WASD gerak | Mouse lihat | ESC lepas kursor", 16,
-                FontStyle.Normal, TextAnchor.LowerCenter, UiTheme.Muted);
-            UiTheme.SetAnchored(hint.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
-                new Vector2(-280f, 12f), new Vector2(280f, 40f));
+            var hintBar = UiTheme.MakePanel(root.transform, "CameraHint", new Color(0.04f, 0.08f, 0.1f, 0.78f));
+            hintBar.raycastTarget = false;
+            UiTheme.SetAnchored(hintBar.rectTransform, new Vector2(0.08f, 0f), new Vector2(0.92f, 0f),
+                new Vector2(0f, 12f), new Vector2(0f, 54f));
+
+            var hint = UiTheme.MakeText(hintBar.transform,
+                "Kamera: tahan KLIK KANAN + geser = putar | WASD = geser | Scroll = zoom | Q/E = naik/turun", 16,
+                FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.95f, 0.78f, 0.35f, 1f));
+            hint.raycastTarget = false;
+            UiTheme.Stretch(hint.rectTransform);
+            hint.rectTransform.offsetMin = new Vector2(10f, 4f);
+            hint.rectTransform.offsetMax = new Vector2(-10f, -4f);
+
+            var exit = UiTheme.MakeButton(root.transform, "HUB", UiTheme.Danger, new Vector2(100f, 40f));
+            var ert = exit.GetComponent<RectTransform>();
+            ert.anchorMin = ert.anchorMax = new Vector2(0f, 1f);
+            ert.pivot = new Vector2(0f, 1f);
+            ert.anchoredPosition = new Vector2(20f, -70f);
+            exit.onClick.AddListener(() =>
+            {
+                PeduliTransit.Bootstrap.GameBootstrap.Instance?.ReturnToHubFromResult();
+            });
         }
 
         void BuildStory()
         {
-            // Dim background stays full-screen so the world behind is still visible/darkened.
             var dim = UiTheme.MakePanel(_canvas, "Story", new Color(0f, 0f, 0f, 0.45f));
             UiTheme.Stretch(dim.rectTransform);
             _storyRoot = dim.gameObject;
 
-            // Built-in rounded-corner sprite Unity uses for default UI Images — gives us
-            // soft rounded corners without needing a custom art asset.
-            Sprite roundedSprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
+            Sprite roundedSprite = UiTheme.RoundedSprite;
 
-            // --- Faint glowing border sitting just behind the card (accent color, low alpha). ---
             var borderGO = new GameObject("CardGlow", typeof(RectTransform), typeof(Image));
             borderGO.transform.SetParent(dim.transform, false);
             var borderImg = borderGO.GetComponent<Image>();
@@ -88,47 +118,28 @@ namespace PeduliTransit.UI
             borderImg.type = Image.Type.Sliced;
             borderImg.raycastTarget = false;
             borderImg.color = new Color(UiTheme.Accent.r, UiTheme.Accent.g, UiTheme.Accent.b, 0.28f);
-            var brt = borderGO.GetComponent<RectTransform>();
-            brt.anchorMin = new Vector2(0.08f, 0f);
-            brt.anchorMax = new Vector2(0.92f, 0f);
-            brt.pivot = new Vector2(0.5f, 0f);
-            brt.offsetMin = new Vector2(-6f, 34f);
-            brt.offsetMax = new Vector2(6f, 306f);
 
-            // --- Dialog box: rounded, semi-transparent "glass" card, anchored to the BOTTOM. ---
             var cardGO = new GameObject("Card", typeof(RectTransform), typeof(Image));
             cardGO.transform.SetParent(dim.transform, false);
             var cardImg = cardGO.GetComponent<Image>();
             cardImg.sprite = roundedSprite;
             cardImg.type = Image.Type.Sliced;
-            cardImg.color = new Color(0.04f, 0.08f, 0.10f, 0.66f); // dark glass, see-through
-            var rt = cardGO.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.08f, 0f);
-            rt.anchorMax = new Vector2(0.92f, 0f);
-            rt.pivot = new Vector2(0.5f, 0f);
-            rt.offsetMin = new Vector2(0f, 40f);
-            rt.offsetMax = new Vector2(0f, 300f); // ~260px tall box
-            var card = cardImg; // keep old local name usable below
+            cardImg.color = new Color(0.04f, 0.08f, 0.10f, 0.66f);
 
-            // --- Character portrait: pinned to top-left of the card, poking upward above it. ---
+            var brt = borderGO.GetComponent<RectTransform>();
+            var rt = cardGO.GetComponent<RectTransform>();
+            ResponsiveUI.FitBottomStoryCard(brt, rt);
+
             var portraitGO = new GameObject("Portrait", typeof(RectTransform), typeof(Image));
-            portraitGO.transform.SetParent(card.transform, false);
+            portraitGO.transform.SetParent(cardGO.transform, false);
             _storyPortrait = portraitGO.GetComponent<Image>();
             _storyPortrait.preserveAspect = true;
             _storyPortrait.raycastTarget = false;
             _storyPortrait.sprite = defaultSpeakerPortrait;
+            ResponsiveUI.FitPortraitForStory(_storyPortrait.rectTransform, rt);
 
-            var prt = _storyPortrait.rectTransform;
-            prt.anchorMin = new Vector2(0f, 1f);
-            prt.anchorMax = new Vector2(0f, 1f);
-            prt.pivot = new Vector2(0f, 0f);
-            prt.sizeDelta = new Vector2(230f, 280f);
-            // Small negative Y dips it 40px INTO the box (overlap), the rest sticks up above the box.
-            prt.anchoredPosition = new Vector2(30f, -40f);
-
-            // --- Name tag / category label pill, top area, to the right of the portrait. ---
             var nameTagGO = new GameObject("NameTag", typeof(RectTransform), typeof(Image));
-            nameTagGO.transform.SetParent(card.transform, false);
+            nameTagGO.transform.SetParent(cardGO.transform, false);
             var nameTagImg = nameTagGO.GetComponent<Image>();
             nameTagImg.sprite = roundedSprite;
             nameTagImg.type = Image.Type.Sliced;
@@ -137,31 +148,32 @@ namespace PeduliTransit.UI
             ntrt.anchorMin = new Vector2(0f, 1f);
             ntrt.anchorMax = new Vector2(0f, 1f);
             ntrt.pivot = new Vector2(0f, 1f);
-            ntrt.sizeDelta = new Vector2(340f, 40f);
-            ntrt.anchoredPosition = new Vector2(280f, -18f);
+            ntrt.sizeDelta = new Vector2(300f, 36f);
+            ntrt.anchoredPosition = new Vector2(250f, -16f);
 
-            _storyTitle = UiTheme.MakeText(nameTagGO.transform, "Misi", 20, FontStyle.Bold, TextAnchor.MiddleCenter,
+            _storyTitle = UiTheme.MakeText(nameTagGO.transform, "Misi", 18, FontStyle.Bold, TextAnchor.MiddleCenter,
                 Color.white);
             UiTheme.Stretch(_storyTitle.rectTransform);
             AddOutline(_storyTitle, new Color(0f, 0f, 0f, 0.5f));
             if (customFont != null) _storyTitle.font = customFont;
 
-            // --- Body text: fills the rest of the box, to the right of the portrait. Bigger + easier to read. ---
-            _storyBody = UiTheme.MakeText(card.transform, "", 23, FontStyle.Normal, TextAnchor.UpperLeft,
+            _storyBody = UiTheme.MakeText(cardGO.transform, "", 20, FontStyle.Normal, TextAnchor.UpperLeft,
                 new Color(0.96f, 0.97f, 0.98f, 1f));
+
             UiTheme.SetAnchored(_storyBody.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f),
-                new Vector2(280f, 24f), new Vector2(-24f, -66f));
-            _storyBody.lineSpacing = 1.25f;
+                new Vector2(250f, 20f), new Vector2(-20f, -58f));
+            _storyBody.lineSpacing = 1.2f;
+            _storyBody.horizontalOverflow = HorizontalWrapMode.Wrap;
+            _storyBody.verticalOverflow = VerticalWrapMode.Overflow;
             AddOutline(_storyBody, new Color(0f, 0f, 0f, 0.55f));
             if (customFont != null) _storyBody.font = customFont;
 
-            // --- Continue button: bottom-right corner of the box. ---
-            var cont = UiTheme.MakeButton(card.transform, "LANJUT", UiTheme.Accent, new Vector2(170f, 48f));
+            var cont = UiTheme.MakeButton(cardGO.transform, "LANJUT", UiTheme.Accent, new Vector2(150f, 44f));
             var crt = cont.GetComponent<RectTransform>();
             crt.anchorMin = new Vector2(1f, 0f);
             crt.anchorMax = new Vector2(1f, 0f);
             crt.pivot = new Vector2(1f, 0f);
-            crt.anchoredPosition = new Vector2(-24f, 18f);
+            crt.anchoredPosition = new Vector2(-18f, 14f);
             cont.onClick.AddListener(() =>
             {
                 _storyRoot.SetActive(false);
@@ -169,8 +181,6 @@ namespace PeduliTransit.UI
             });
         }
 
-        // Small helper: adds a subtle dark outline behind text so it stays readable
-        // over a semi-transparent / busy background.
         static void AddOutline(Text text, Color color)
         {
             var outline = text.gameObject.AddComponent<Outline>();
@@ -184,23 +194,21 @@ namespace PeduliTransit.UI
             UiTheme.Stretch(dim.rectTransform);
             _popupRoot = dim.gameObject;
 
-            var card = UiTheme.MakePanel(dim.transform, "Card", UiTheme.Panel);
-            var rt = card.rectTransform;
-            rt.anchorMin = new Vector2(0.5f, 0.5f);
-            rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(620f, 280f);
+            var card = UiTheme.MakeResponsiveGlassCard(dim.transform, "Card",
+                0.42f, 0.30f, 420f, 720f, 240f, 340f);
 
-            _promptText = UiTheme.MakeText(card.transform, "Pertanyaan?", 22, FontStyle.Bold, TextAnchor.UpperCenter);
-            UiTheme.SetAnchored(_promptText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                new Vector2(-280f, -90f), new Vector2(280f, -24f));
+            _promptText = UiTheme.MakeText(card.transform, "Pertanyaan?", 20, FontStyle.Bold, TextAnchor.UpperCenter);
+            UiTheme.SetAnchored(_promptText.rectTransform, new Vector2(0.08f, 0.55f), new Vector2(0.92f, 0.92f),
+                Vector2.zero, Vector2.zero);
+            _promptText.horizontalOverflow = HorizontalWrapMode.Wrap;
 
-            _timerText = UiTheme.MakeText(card.transform, "10.0", 20, FontStyle.Bold, TextAnchor.MiddleCenter,
+            _timerText = UiTheme.MakeText(card.transform, "10.0", 18, FontStyle.Bold, TextAnchor.MiddleCenter,
                 UiTheme.Accent);
-            _timerText.rectTransform.anchoredPosition = new Vector2(0f, 10f);
+            _timerText.rectTransform.anchoredPosition = new Vector2(0f, 8f);
 
             var barBg = UiTheme.MakePanel(card.transform, "TimerBg", new Color(1f, 1f, 1f, 0.15f));
-            barBg.rectTransform.sizeDelta = new Vector2(420f, 14f);
-            barBg.rectTransform.anchoredPosition = new Vector2(0f, -20f);
+            barBg.rectTransform.sizeDelta = new Vector2(360f, 12f);
+            barBg.rectTransform.anchoredPosition = new Vector2(0f, -18f);
 
             _timerFill = UiTheme.MakePanel(barBg.transform, "Fill", UiTheme.Teal);
             UiTheme.Stretch(_timerFill.rectTransform);
@@ -209,13 +217,54 @@ namespace PeduliTransit.UI
             _timerFill.fillMethod = Image.FillMethod.Horizontal;
             _timerFill.fillAmount = 1f;
 
-            var yes = UiTheme.MakeButton(card.transform, "YA", UiTheme.Good, new Vector2(160f, 48f));
-            yes.GetComponent<RectTransform>().anchoredPosition = new Vector2(-110f, -90f);
+            var yes = UiTheme.MakeButton(card.transform, "YA", UiTheme.Good, new Vector2(140f, 44f));
+            yes.GetComponent<RectTransform>().anchoredPosition = new Vector2(-100f, -85f);
             yes.onClick.AddListener(() => Resolve(DecisionOutcome.Yes));
 
-            var no = UiTheme.MakeButton(card.transform, "TIDAK", UiTheme.Danger, new Vector2(160f, 48f));
-            no.GetComponent<RectTransform>().anchoredPosition = new Vector2(110f, -90f);
+            var no = UiTheme.MakeButton(card.transform, "TIDAK", UiTheme.Danger, new Vector2(140f, 44f));
+            no.GetComponent<RectTransform>().anchoredPosition = new Vector2(100f, -85f);
             no.onClick.AddListener(() => Resolve(DecisionOutcome.No));
+        }
+
+        void BuildPriorityChoice()
+        {
+            var dim = UiTheme.MakePanel(_canvas, "PriorityChoice", new Color(0f, 0f, 0f, 0.75f));
+            UiTheme.Stretch(dim.rectTransform);
+            _choiceRoot = dim.gameObject;
+
+            var card = UiTheme.MakeResponsiveGlassCard(dim.transform, "Card",
+                0.44f, 0.32f, 440f, 760f, 260f, 360f);
+
+            _choicePrompt = UiTheme.MakeText(card.transform, "Pilih tindakan", 20, FontStyle.Bold,
+                TextAnchor.UpperCenter);
+            UiTheme.SetAnchored(_choicePrompt.rectTransform, new Vector2(0.08f, 0.62f), new Vector2(0.92f, 0.92f),
+                Vector2.zero, Vector2.zero);
+            _choicePrompt.horizontalOverflow = HorizontalWrapMode.Wrap;
+
+            var negur = UiTheme.MakeButton(card.transform, "TEGUR SENDIRI", UiTheme.Accent, new Vector2(200f, 48f));
+            negur.GetComponent<RectTransform>().anchoredPosition = new Vector2(-120f, -30f);
+            negur.onClick.AddListener(() =>
+            {
+                _choiceRoot.SetActive(false);
+                _onPriorityChoice?.Invoke(true);
+            });
+
+            var wa = UiTheme.MakeButton(card.transform, "LAPOR WA", new Color(0.07f, 0.54f, 0.47f, 1f),
+                new Vector2(200f, 48f));
+            wa.GetComponent<RectTransform>().anchoredPosition = new Vector2(120f, -30f);
+            wa.onClick.AddListener(() =>
+            {
+                _choiceRoot.SetActive(false);
+                _onPriorityChoice?.Invoke(false);
+            });
+
+            var skip = UiTheme.MakeButton(card.transform, "ABAIKAN", UiTheme.Danger, new Vector2(150f, 38f));
+            skip.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -100f);
+            skip.onClick.AddListener(() =>
+            {
+                _choiceRoot.SetActive(false);
+                _onDecision?.Invoke(DecisionOutcome.No);
+            });
         }
 
         void BuildResult()
@@ -224,18 +273,18 @@ namespace PeduliTransit.UI
             UiTheme.Stretch(dim.rectTransform);
             _resultRoot = dim.gameObject;
 
-            var card = UiTheme.MakePanel(dim.transform, "Card", UiTheme.Panel);
-            card.rectTransform.sizeDelta = new Vector2(560f, 360f);
-            card.rectTransform.anchorMin = card.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+            var card = UiTheme.MakeResponsiveGlassCard(dim.transform, "Card",
+                0.38f, 0.42f, 400f, 640f, 300f, 440f);
 
-            UiTheme.MakeText(card.transform, "SESI SELESAI", 28, FontStyle.Bold, TextAnchor.UpperCenter, UiTheme.Accent)
-                .rectTransform.anchoredPosition = new Vector2(0f, -32f);
+            UiTheme.MakeText(card.transform, "SESI SELESAI", 26, FontStyle.Bold, TextAnchor.UpperCenter, UiTheme.Accent)
+                .rectTransform.anchoredPosition = new Vector2(0f, -28f);
 
-            _resultBody = UiTheme.MakeText(card.transform, "", 18, FontStyle.Normal, TextAnchor.UpperLeft);
-            UiTheme.SetAnchored(_resultBody.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                new Vector2(-220f, -40f), new Vector2(220f, 110f));
+            _resultBody = UiTheme.MakeText(card.transform, "", 17, FontStyle.Normal, TextAnchor.UpperLeft);
+            UiTheme.SetAnchored(_resultBody.rectTransform, new Vector2(0.1f, 0.22f), new Vector2(0.9f, 0.78f),
+                Vector2.zero, Vector2.zero);
+            _resultBody.horizontalOverflow = HorizontalWrapMode.Wrap;
 
-            var hub = UiTheme.MakeButton(card.transform, "KEMBALI KE HUB", UiTheme.Teal, new Vector2(240f, 48f));
+            var hub = UiTheme.MakeButton(card.transform, "KEMBALI KE HUB", UiTheme.Teal, new Vector2(220f, 44f));
             hub.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -140f);
             hub.onClick.AddListener(() =>
             {
@@ -258,15 +307,11 @@ namespace PeduliTransit.UI
                 _scoreText.text = $"Skor: {score}";
         }
 
-        // Original 3-arg call sites (e.g. EventDirector.cs) keep working unchanged —
-        // they'll just use defaultSpeakerPortrait for the character image.
         public void ShowStory(string title, string body, Action onContinue)
         {
             ShowStory(title, body, onContinue, null);
         }
 
-        // Optional overload: pass a specific sprite per NPC/incident if you want
-        // different characters to show different portraits later.
         public void ShowStory(string title, string body, Action onContinue, Sprite portrait)
         {
             _onStoryContinue = onContinue;
@@ -276,6 +321,7 @@ namespace PeduliTransit.UI
                 _storyPortrait.sprite = portrait != null ? portrait : defaultSpeakerPortrait;
 
             _storyRoot.SetActive(true);
+            PeduliTransit.Audio.AudioManager.Instance?.PlayUi(PeduliTransit.Audio.SfxId.StoryAdvance);
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
@@ -286,12 +332,56 @@ namespace PeduliTransit.UI
             _decisionLocked = false;
             _promptText.text = prompt;
             _popupRoot.SetActive(true);
+            PeduliTransit.Audio.AudioManager.Instance?.PlayUi(PeduliTransit.Audio.SfxId.UiClick);
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
 
             if (_timerRoutine != null)
                 StopCoroutine(_timerRoutine);
             _timerRoutine = StartCoroutine(TimerRoutine(seconds));
+        }
+
+        public void ShowPriorityActionChoice(string prompt, Action<bool> onChoice, Action<DecisionOutcome> onSkip)
+        {
+            _onPriorityChoice = onChoice;
+            _onDecision = onSkip;
+            _choicePrompt.text = prompt;
+            _choiceRoot.SetActive(true);
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+
+        public void ShowWhatsAppReport(IncidentDefinition incident, Action<DecisionOutcome> onDecision)
+        {
+            _onDecision = onDecision;
+            _decisionLocked = false;
+
+            _phone.Show(
+                incident.whatsappContactName,
+                incident.contactSubtitle,
+                incident.reportOptions,
+                incident.timeLimit,
+                onPick: opt =>
+                {
+                    if (_decisionLocked) return;
+                    _decisionLocked = true;
+                    onDecision?.Invoke(opt != null && opt.isCorrect
+                        ? DecisionOutcome.Yes
+                        : DecisionOutcome.WrongReport);
+                },
+                onCancel: () =>
+                {
+                    if (_decisionLocked) return;
+                    _decisionLocked = true;
+                    onDecision?.Invoke(DecisionOutcome.Cancel);
+                },
+                onTimeout: () =>
+                {
+                    if (_decisionLocked) return;
+                    _decisionLocked = true;
+                    onDecision?.Invoke(DecisionOutcome.Timeout);
+                }
+            );
         }
 
         IEnumerator TimerRoutine(float seconds)
@@ -350,7 +440,9 @@ namespace PeduliTransit.UI
             if (_hudRoot) _hudRoot.SetActive(false);
             if (_storyRoot) _storyRoot.SetActive(false);
             if (_popupRoot) _popupRoot.SetActive(false);
+            if (_choiceRoot) _choiceRoot.SetActive(false);
             if (_resultRoot) _resultRoot.SetActive(false);
+            _phone?.Hide();
         }
     }
 }

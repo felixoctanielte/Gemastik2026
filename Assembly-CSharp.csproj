@@ -59,30 +59,42 @@
     <UnityVersion>2022.3.62f2</UnityVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Analyzer Include="C:\Users\felix\.vscode\extensions\visualstudiotoolsforunity.vstuc-1.3.1\Analyzers\Microsoft.Unity.Analyzers.dll" />
     <Analyzer Include="C:\Program Files\Unity\Hub\Editor\2022.3.62f2\Editor\Data\Tools\Unity.SourceGenerators\Unity.SourceGenerators.dll" />
     <Analyzer Include="C:\Program Files\Unity\Hub\Editor\2022.3.62f2\Editor\Data\Tools\Unity.SourceGenerators\Unity.Properties.SourceGenerator.dll" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\Scripts\World\VehicleInteriorBuilder.cs" />
     <Compile Include="Assets\Scripts\Bootstrap\GameBootstrap.cs" />
+    <Compile Include="Assets\Scripts\UI\PhoneWhatsAppUI.cs" />
+    <Compile Include="Assets\Scripts\World\SeatSlot.cs" />
+    <Compile Include="Assets\Scripts\World\VehicleDoor.cs" />
     <Compile Include="Assets\Scripts\Events\IncidentCatalog.cs" />
     <Compile Include="Assets\Scripts\Managers\SaveSystem.cs" />
     <Compile Include="Assets\Scripts\World\InteriorAssetSlots.cs" />
     <Compile Include="Assets\Scripts\NPC\NpcPassenger.cs" />
     <Compile Include="Assets\Scripts\Managers\LeaderboardService.cs" />
     <Compile Include="Assets\Scripts\UI\LoginUI.cs" />
+    <Compile Include="Assets\Scripts\Audio\AudioIds.cs" />
+    <Compile Include="Assets\Scripts\Player\FreeLookCamera.cs" />
     <Compile Include="Assets\Scripts\UI\GameplayUI.cs" />
     <Compile Include="Assets\Scripts\UI\UiTheme.cs" />
     <Compile Include="Assets\Scripts\Player\FirstPersonController.cs" />
+    <Compile Include="Assets\Scripts\Audio\AudioLibrary.cs" />
     <Compile Include="Assets\Scripts\Managers\GameManager.cs" />
     <Compile Include="Assets\Scripts\UI\HubUI.cs" />
+    <Compile Include="Assets\Scripts\UI\ResponsiveUI.cs" />
     <Compile Include="Assets\Scripts\Data\GameModels.cs" />
     <Compile Include="Assets\Scripts\Core\GameEnums.cs" />
+    <Compile Include="Assets\Scripts\Audio\AudioManager.cs" />
     <Compile Include="Assets\Kevin Iglesias\Human Animations\Scripts\SpineProxy.cs" />
     <Compile Include="Assets\Scripts\Events\EventDirector.cs" />
+    <Compile Include="Assets\Scripts\UI\UiAssets.cs" />
+    <Compile Include="Assets\Scripts\UI\CameraControlsSceneHint.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\AnimeGirls\BaseCharacter\BaseCharacter\Sourcefiles\Shader\DoubleSided.shader" />
+    <None Include="Assets\Resources\Audio\CARA_ISI_AUDIO.txt" />
     <None Include="Assets\npc_casual_set_00\readme.txt" />
     <None Include="Assets\AnimeGirls\BaseCharacter\BaseCharacter\Sourcefiles\Shader\UnlitColor.shader" />
   </ItemGroup>
@@ -429,6 +441,18 @@
     </Reference>
     <Reference Include="Unity.VisualScripting.Antlr3.Runtime">
       <HintPath>Library\PackageCache\com.unity.visualscripting@1.9.4\Runtime\VisualScripting.Flow\Dependencies\NCalc\Unity.VisualScripting.Antlr3.Runtime.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.Android.Types">
+      <HintPath>C:\Program Files\Unity\Hub\Editor\2022.3.62f2\Editor\Data\PlaybackEngines\AndroidPlayer\Unity.Android.Types.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.Android.Gradle">
+      <HintPath>C:\Program Files\Unity\Hub\Editor\2022.3.62f2\Editor\Data\PlaybackEngines\AndroidPlayer\Unity.Android.Gradle.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.Android.GradleProject">
+      <HintPath>C:\Program Files\Unity\Hub\Editor\2022.3.62f2\Editor\Data\PlaybackEngines\AndroidPlayer\Unity.Android.GradleProject.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="netstandard">
@@ -959,10 +983,6 @@
       <HintPath>Library\ScriptAssemblies\Unity.VisualScripting.Core.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="UnityEngine.UI">
-      <HintPath>Library\ScriptAssemblies\UnityEngine.UI.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
     <Reference Include="Unity.VisualScripting.Core.Editor">
       <HintPath>Library\ScriptAssemblies\Unity.VisualScripting.Core.Editor.dll</HintPath>
       <Private>False</Private>
@@ -973,6 +993,10 @@
     </Reference>
     <Reference Include="Unity.2D.Sprite.Editor">
       <HintPath>Library\ScriptAssemblies\Unity.2D.Sprite.Editor.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>Library\ScriptAssemblies\UnityEngine.UI.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.VisualScripting.Flow">

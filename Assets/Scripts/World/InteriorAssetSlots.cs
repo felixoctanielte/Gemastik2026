@@ -3,10 +3,7 @@ using UnityEngine;
 
 namespace PeduliTransit.World
 {
-    /// <summary>
-    /// Slot supaya teman bisa drag prefab interior (Sketchfab/FBX) di Inspector.
-    /// Kosong = pakai interior primitif procedural.
-    /// </summary>
+
     public class InteriorAssetSlots : MonoBehaviour
     {
         [Header("Drag prefab interior di sini nanti")]
@@ -20,13 +17,18 @@ namespace PeduliTransit.World
 
         public GameObject GetPrefab(TransportMode mode)
         {
-            return mode switch
+            var prefab = mode switch
             {
                 TransportMode.Krl => krlInteriorPrefab,
                 TransportMode.Bus => busInteriorPrefab,
                 TransportMode.AngkutanUmum => angkutanInteriorPrefab,
                 _ => null
             };
+
+            if (prefab == null && mode == TransportMode.Bus)
+                prefab = Resources.Load<GameObject>("BusWrapper");
+
+            return prefab;
         }
     }
 }

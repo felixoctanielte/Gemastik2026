@@ -15,7 +15,6 @@ namespace PeduliTransit.UI
         public static readonly Color Text = new Color(0.95f, 0.96f, 0.94f, 1f);
         public static readonly Color Muted = new Color(0.72f, 0.78f, 0.76f, 1f);
 
-        // Dark, semi-transparent "glass" tint used for all cards/bars across screens.
         public static readonly Color Glass = new Color(0.04f, 0.08f, 0.10f, 0.70f);
 
         public static Font DefaultFont
@@ -32,16 +31,6 @@ namespace PeduliTransit.UI
         static Sprite _roundedSprite;
         static bool _roundedSpriteLookedUp;
 
-        // Built-in Unity sprite with soft rounded corners + 9-slice borders. Reused everywhere
-        // so every panel/card/button/bar in the game shares the same rounded look for free.
-        //
-        // IMPORTANT: this must be "UI/Skin/UISprite.psd" — the plain WHITE rounded sprite the
-        // default Unity UI system uses for Image/Button/Panel, which tints predictably.
-        // "UI/Skin/Background.psd" is the OLD legacy IMGUI skin box texture, which is baked
-        // with its own tan/brown shading — tinting it dark still comes out muddy brown, which
-        // is exactly the discoloration bug. Falls back to null (plain square corners) if
-        // neither builtin resource name resolves on a given Unity version, so this never
-        // breaks the build — worst case you just lose the rounded corners.
         public static Sprite RoundedSprite
         {
             get
@@ -57,10 +46,6 @@ namespace PeduliTransit.UI
             }
         }
 
-        // Default width/height given to a Text element when the caller only sets an
-        // anchoredPosition (point anchor) and never an explicit size. Without this, a fresh
-        // RectTransform defaults to a tiny 100x100 box, which forces longer labels like
-        // "PEDULI TRANSIT" to wrap across multiple lines and overlap whatever sits below them.
         static readonly Vector2 DefaultTextSize = new Vector2(560f, 64f);
 
         public static Text MakeText(Transform parent, string content, int size, FontStyle style = FontStyle.Normal,
@@ -91,9 +76,6 @@ namespace PeduliTransit.UI
             return img;
         }
 
-        // Rounded, tinted "glass" panel — the same building block used for every card/bar/dialog.
-        // Anchored to center by default; caller can re-anchor afterwards if it needs to sit
-        // somewhere other than the middle (e.g. a full-width top/bottom bar).
         public static Image MakeGlassPanel(Transform parent, string name, Vector2 size, Color? tint = null)
         {
             var img = MakePanel(parent, name, tint ?? Glass);
@@ -105,8 +87,6 @@ namespace PeduliTransit.UI
             return img;
         }
 
-        // Soft glowing outline sitting just behind a card — gives every screen the same
-        // "floating glass card with a faint accent halo" feel. Non-interactive.
         public static Image MakeGlowBorder(Transform parent, Vector2 size, Color? color = null)
         {
             var glowColor = color ?? new Color(Accent.r, Accent.g, Accent.b, 0.3f);
@@ -123,8 +103,6 @@ namespace PeduliTransit.UI
             return img;
         }
 
-        // Convenience: creates a glow + glass card as one pair, both centered on parent.
-        // Returns the card; the glow sits behind it automatically (created first).
         public static Image MakeGlassCard(Transform parent, string name, Vector2 size, float glowPadding = 16f,
             Color? tint = null, Color? glowColor = null)
         {
@@ -132,8 +110,6 @@ namespace PeduliTransit.UI
             return MakeGlassPanel(parent, name, size, tint);
         }
 
-        // Character/mascot artwork — used for the login screen, the hub, and the story
-        // dialog box so every screen can show the same friendly face consistently.
         public static Image MakePortrait(Transform parent, Sprite sprite, Vector2 size)
         {
             var go = new GameObject("Portrait", typeof(RectTransform), typeof(Image));
@@ -196,8 +172,6 @@ namespace PeduliTransit.UI
             return input;
         }
 
-        // Subtle dark outline behind text so it stays readable over glass/busy backgrounds.
-        // Shared by every screen instead of each UI script keeping its own private copy.
         public static void AddOutline(Text text, Color color)
         {
             var outline = text.gameObject.AddComponent<Outline>();
@@ -222,31 +196,23 @@ namespace PeduliTransit.UI
             rt.offsetMax = offsetMax;
         }
 
-        // Makes sure the Canvas this UI lives on actually fills the screen and scales
-        // consistently across resolutions/aspect ratios, instead of relying on whatever
-        // Canvas settings happened to be left in the scene. Safe to call every time a
-        // screen builds itself — it no-ops nicely on a deliberate World Space canvas.
         public static void EnsureFullscreenCanvas(Transform canvasTransform)
         {
             var canvas = canvasTransform.GetComponentInParent<Canvas>();
             if (canvas == null || canvas.renderMode == RenderMode.WorldSpace)
                 return;
 
-            // Only take over scaling if there is NO CanvasScaler yet. If one already exists
-            // (configured by hand in the Inspector, or by another script), leave it alone —
-            // overwriting it is what made everything look wrong at other resolutions.
-            var scaler = canvas.GetComponent<CanvasScaler>();
-            if (scaler == null)
-            {
-                scaler = canvas.gameObject.AddComponent<CanvasScaler>();
-                scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-                scaler.referenceResolution = new Vector2(1920f, 1080f);
-                scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
-                scaler.matchWidthOrHeight = 0.5f;
-            }
+            ResponsiveUI.ApplyCanvasScaler(canvas);
+        }
 
-            if (canvas.GetComponent<GraphicRaycaster>() == null)
-                canvas.gameObject.AddComponent<GraphicRaycaster>();
+        public static Image MakeResponsiveGlassCard(Transform parent, string name,
+            float widthFrac, float heightFrac, float minW, float maxW, float minH, float maxH,
+            float glowPadding = 16f, Color? tint = null, Color? glowColor = null)
+        {
+            float w = Mathf.Clamp(ResponsiveUI.RefWidth * widthFrac, minW, maxW);
+            float h = Mathf.Clamp(ResponsiveUI.RefHeight * heightFrac, minH, maxH);
+            MakeGlowBorder(parent, new Vector2(w + glowPadding, h + glowPadding), glowColor);
+            return MakeGlassPanel(parent, name, new Vector2(w, h), tint);
         }
     }
 }

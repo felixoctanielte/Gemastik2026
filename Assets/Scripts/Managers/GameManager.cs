@@ -1,4 +1,5 @@
 using System;
+using PeduliTransit.Audio;
 using PeduliTransit.Core;
 using PeduliTransit.Data;
 using UnityEngine;
@@ -27,11 +28,15 @@ namespace PeduliTransit.Managers
             }
 
             Instance = this;
-            // Single-scene prototype: tetap di hierarchy, jangan DDOL
             Profile = SaveSystem.LoadProfile();
             Settings = SaveSystem.LoadSettings();
-            AudioListener.volume = Mathf.Clamp01(Settings.masterVolume);
             Session = new SessionStats();
+
+            AudioManager.EnsureExists();
+            if (AudioManager.Instance != null)
+                AudioManager.Instance.ApplyVolumes();
+            else
+                AudioListener.volume = Settings.muteAll ? 0f : Mathf.Clamp01(Settings.masterVolume);
         }
 
         public void SetState(GameState state)
@@ -43,8 +48,26 @@ namespace PeduliTransit.Managers
         public void Login(string username)
         {
             Profile.username = username.Trim();
+            if (Profile.username.Length > 16)
+                Profile.username = Profile.username.Substring(0, 16);
             SaveSystem.SaveProfile(Profile);
             SetState(GameState.Hub);
+            AudioManager.Instance?.PlayUi(SfxId.LoginSuccess);
+            AudioManager.Instance?.PlayBgm(BgmId.Hub);
+        }
+
+        public void RenameUser(string newName)
+        {
+            if (string.IsNullOrWhiteSpace(newName))
+                return;
+
+            string cleaned = newName.Trim();
+            if (cleaned.Length > 16)
+                cleaned = cleaned.Substring(0, 16);
+
+            Profile.username = cleaned;
+            SaveSystem.SaveProfile(Profile);
+            AudioManager.Instance?.PlayUi(SfxId.UiConfirm);
         }
 
         public bool HasSavedUser => !string.IsNullOrWhiteSpace(Profile.username);
@@ -54,26 +77,36 @@ namespace PeduliTransit.Managers
             CurrentMode = mode;
             Session = new SessionStats { mode = mode };
             SetState(GameState.Playing);
+            AudioManager.Instance?.PlayUi(SfxId.ModeSelect);
+            AudioManager.Instance?.PlayBgmForMode(mode);
         }
 
         public void ApplyDecision(EventCategory category, DecisionOutcome outcome, int delta)
         {
             Session.currentPoints += delta;
             Session.eventsCompleted++;
-
-            bool correct = outcome == DecisionOutcome.Yes;
+            AudioManager.Instance?.PlayDecisionFeedback(outcome);
 
             if (outcome == DecisionOutcome.Timeout)
             {
                 Session.timeouts++;
                 Profile.timeouts++;
+                return;
             }
-            else if (!correct)
+
+            if (outcome == DecisionOutcome.Cancel)
+                return;
+
+            bool correct = outcome == DecisionOutcome.Yes || outcome == DecisionOutcome.Negur;
+
+            if (!correct)
             {
                 Session.wrongChoices++;
                 Profile.wrongChoices++;
+                return;
             }
-            else if (category == EventCategory.Report)
+
+            if (category == EventCategory.Report || outcome == DecisionOutcome.Negur)
             {
                 Session.correctReports++;
                 Profile.correctReports++;
@@ -85,6 +118,22 @@ namespace PeduliTransit.Managers
             }
         }
 
+        public int ScoreFor(IncidentDefinition incident, DecisionOutcome outcome)
+        {
+            if (incident == null)
+                return 0;
+
+            return outcome switch
+            {
+                DecisionOutcome.Yes => incident.scoreYes,
+                DecisionOutcome.Negur => incident.scoreNegur,
+                DecisionOutcome.WrongReport => incident.scoreWrongReport,
+                DecisionOutcome.Cancel => incident.scoreCancel,
+                DecisionOutcome.No => incident.scoreNo,
+                _ => incident.scoreTimeout
+            };
+        }
+
         public void EndSession()
         {
             Profile.totalScore += Session.currentPoints;
@@ -92,16 +141,20 @@ namespace PeduliTransit.Managers
             SaveSystem.SaveProfile(Profile);
             Leaderboard.Submit(Profile, CurrentMode.ToString());
             SetState(GameState.Result);
+            AudioManager.Instance?.PlaySfx(SfxId.SessionComplete);
+            AudioManager.Instance?.PlayBgm(BgmId.Result);
         }
 
         public void SaveSettings()
         {
             SaveSystem.SaveSettings(Settings);
+            AudioManager.Instance?.ApplyVolumes();
         }
 
         public void ReturnToHub()
         {
             SetState(GameState.Hub);
+            AudioManager.Instance?.PlayBgm(BgmId.Hub);
         }
     }
 }

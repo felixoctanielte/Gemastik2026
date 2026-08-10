@@ -1,4 +1,6 @@
+using System.Collections;
 using PeduliTransit.Core;
+using PeduliTransit.World;
 using UnityEngine;
 
 namespace PeduliTransit.NPC
@@ -7,28 +9,39 @@ namespace PeduliTransit.NPC
     {
         public NpcRole Role { get; private set; }
         public bool IsSitting { get; private set; }
+        public bool IsPriorityEligible { get; private set; }
+        public SeatSlot AssignedSeat { get; private set; }
+        public bool IsResponder { get; private set; }
+        public bool IsExiting { get; private set; }
 
         TextMesh _label;
         Animator _animator;
+        RuntimeAnimatorController _controller;
+        bool _usingCharacterModel;
 
-        [Header("Walking")]
-        [SerializeField] float walkSpeed = 0.8f;
-
+        [SerializeField] float walkSpeed = 1.35f;
         bool _walking;
+        Vector3? _moveTarget;
+        System.Action _onArrive;
 
         public void Setup(
             NpcRole role,
             bool sitting,
             Color color,
             RuntimeAnimatorController animatorController = null,
-            bool tintMaterial = true)
+            bool tintMaterial = true,
+            bool usingCharacterModel = false)
         {
             Role = role;
             IsSitting = sitting;
+            _controller = animatorController;
+            _usingCharacterModel = usingCharacterModel;
+            IsPriorityEligible = IsPriorityRole(role);
+            IsResponder = role == NpcRole.Security
+                || role == NpcRole.TicketOfficer
+                || role == NpcRole.DriverAssistant;
 
-            // Animator
             _animator = GetComponentInChildren<Animator>();
-
             if (_animator == null)
                 _animator = gameObject.AddComponent<Animator>();
 
@@ -38,11 +51,9 @@ namespace PeduliTransit.NPC
                 _animator.applyRootMotion = false;
             }
 
-            // Material
             if (tintMaterial)
             {
                 var renderer = GetComponentInChildren<Renderer>();
-
                 if (renderer != null)
                 {
                     renderer.material = new Material(Shader.Find("Standard"));
@@ -50,41 +61,211 @@ namespace PeduliTransit.NPC
                 }
             }
 
-            EnsureLabel(role.ToString());
-
-            // Kalau berdiri → jalan
-            // Kalau duduk → diam
-            SetWalking(!sitting);
+            EnsureLabel(DisplayName(role));
+            ApplyPose(sitting);
         }
 
-        void SetWalking(bool walking)
+        public static bool IsPriorityRole(NpcRole role)
+        {
+            return role == NpcRole.Pregnant
+                || role == NpcRole.Elderly
+                || role == NpcRole.Disability
+                || role == NpcRole.CarryingChild;
+        }
+
+        static string DisplayName(NpcRole role)
+        {
+            return role switch
+            {
+                NpcRole.LoudTalking => "Ramai",
+                NpcRole.PrioritySeatAbuse => "Salah duduk",
+                NpcRole.PhoneVolume => "HP keras",
+                NpcRole.HarassmentHint => "Mencurigakan",
+                NpcRole.Fighting => "Berantem",
+                NpcRole.Pregnant => "Ibu hamil",
+                NpcRole.CarryingChild => "Gendong anak",
+                NpcRole.Disability => "Disabilitas",
+                NpcRole.Elderly => "Lansia",
+                NpcRole.Security => "Satpam",
+                NpcRole.TicketOfficer => "Petugas",
+                NpcRole.DriverAssistant => "Kondektur",
+                _ => "Penumpang"
+            };
+        }
+
+        public void AssignSeat(SeatSlot seat)
+        {
+            if (seat == null)
+                return;
+
+            if (AssignedSeat == seat && seat.Occupant == this)
+            {
+                SitAt(seat);
+                return;
+            }
+
+            if (AssignedSeat != null)
+                AssignedSeat.Vacate(this);
+
+            if (seat.IsOccupied && seat.Occupant != this)
+            {
+                AssignedSeat = null;
+                ApplyPose(false);
+                return;
+            }
+
+            if (!seat.TryOccupy(this))
+            {
+                AssignedSeat = null;
+                ApplyPose(false);
+                return;
+            }
+
+            AssignedSeat = seat;
+            SitAt(seat);
+        }
+
+        public void VacateSeat()
+        {
+            if (AssignedSeat != null)
+            {
+                AssignedSeat.Vacate(this);
+                AssignedSeat = null;
+            }
+
+            ApplyPose(false);
+        }
+
+        public void SitAt(SeatSlot seat)
+        {
+            if (seat == null)
+                return;
+
+            AssignedSeat = seat;
+            transform.position = seat.SitWorldPosition;
+            transform.rotation = seat.SitFacing;
+            ApplyPose(true);
+        }
+
+        public void StandAt(Vector3 worldPos, Quaternion facing)
+        {
+            VacateSeat();
+            transform.position = worldPos;
+            transform.rotation = facing;
+            ApplyPose(false);
+            SetWalking(false);
+        }
+
+        void ApplyPose(bool sitting)
+        {
+            IsSitting = sitting;
+            SetWalking(false);
+
+            if (!_usingCharacterModel)
+            {
+                transform.localScale = sitting
+                    ? new Vector3(0.7f, 0.55f, 0.7f)
+                    : new Vector3(0.7f, 0.9f, 0.7f);
+            }
+            else
+            {
+
+                var pos = transform.position;
+                pos.y = sitting ? 0.15f : 0f;
+
+                if (sitting)
+                    transform.position = new Vector3(pos.x, Mathf.Min(pos.y, 0.2f), pos.z);
+            }
+        }
+
+        public void SetWalking(bool walking)
         {
             _walking = walking;
 
-            if (_animator == null)
+            if (_animator == null || _animator.runtimeAnimatorController == null)
                 return;
 
-            if (_animator.runtimeAnimatorController == null)
+            if (walking)
+            {
+                int hash = Animator.StringToHash("HumanF@Walk01_Forward");
+                if (_animator.HasState(0, hash))
+                    _animator.Play(hash, 0, 0f);
+            }
+            else
+            {
+                _animator.speed = 0f;
                 return;
+            }
 
-            // Controller lu sekarang cuma punya animation Walk,
-            // jadi langsung play state tersebut.
-            _animator.Play("HumanF@Walk01_Forward", 0, 0f);
+            _animator.speed = 1f;
+        }
+
+        public void WalkTo(Vector3 worldTarget, System.Action onArrive = null)
+        {
+            VacateSeat();
+            _moveTarget = worldTarget;
+            _onArrive = onArrive;
+            FaceToward(worldTarget);
+            SetWalking(true);
+        }
+
+        public IEnumerator WalkToRoutine(Vector3 worldTarget, float arriveDist = 0.35f)
+        {
+            bool done = false;
+            WalkTo(worldTarget, () => done = true);
+            float guard = 12f;
+            while (!done && guard > 0f)
+            {
+                guard -= Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            _moveTarget = null;
+            SetWalking(false);
+            transform.position = worldTarget;
+        }
+
+        void FaceToward(Vector3 worldTarget)
+        {
+            Vector3 dir = worldTarget - transform.position;
+            dir.y = 0f;
+            if (dir.sqrMagnitude > 0.001f)
+                transform.rotation = Quaternion.LookRotation(dir.normalized);
         }
 
         void Update()
         {
-            if (!_walking)
-                return;
+            if (_moveTarget.HasValue)
+            {
+                Vector3 target = _moveTarget.Value;
+                Vector3 flat = transform.position;
+                flat.y = target.y;
+                Vector3 next = Vector3.MoveTowards(transform.position, target, walkSpeed * Time.deltaTime);
+                transform.position = next;
+                FaceToward(target);
 
-            // Gerakkan NPC ke depan
-            transform.position += transform.forward * walkSpeed * Time.deltaTime;
+                if (Vector3.Distance(transform.position, target) <= 0.3f)
+                {
+                    transform.position = target;
+                    _moveTarget = null;
+                    SetWalking(false);
+                    var cb = _onArrive;
+                    _onArrive = null;
+                    cb?.Invoke();
+                }
+
+                return;
+            }
+
         }
 
         void EnsureLabel(string text)
         {
             if (_label != null)
+            {
+                _label.text = text;
                 return;
+            }
 
             var go = new GameObject("Label");
             go.transform.SetParent(transform, false);
@@ -99,6 +280,11 @@ namespace PeduliTransit.NPC
             _label.color = Color.white;
         }
 
+        public void SetLabel(string text)
+        {
+            EnsureLabel(text);
+        }
+
         void LateUpdate()
         {
             if (_label == null || Camera.main == null)
@@ -110,14 +296,20 @@ namespace PeduliTransit.NPC
 
         public void Highlight(bool on)
         {
-            var renderer = GetComponentInChildren<Renderer>();
+            foreach (var renderer in GetComponentsInChildren<Renderer>())
+            {
+                if (renderer == null || renderer.material == null)
+                    continue;
 
-            if (renderer == null)
-                return;
+                if (on)
+                    renderer.material.color = Color.Lerp(renderer.material.color, Color.yellow, 0.45f);
+            }
+        }
 
-            renderer.material.color = on
-                ? Color.Lerp(renderer.material.color, Color.yellow, 0.55f)
-                : renderer.material.color;
+        public void MarkExiting()
+        {
+            IsExiting = true;
+            VacateSeat();
         }
     }
 }

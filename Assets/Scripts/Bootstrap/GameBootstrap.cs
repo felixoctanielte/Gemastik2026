@@ -10,9 +10,7 @@ using UnityEngine.UI;
 
 namespace PeduliTransit.Bootstrap
 {
-    /// <summary>
-    /// Entry point. Semua object diparent ke hierarchy scene agar terlihat di Hierarchy window.
-    /// </summary>
+
     public class GameBootstrap : MonoBehaviour
     {
         public static GameBootstrap Instance { get; private set; }
@@ -40,7 +38,7 @@ namespace PeduliTransit.Bootstrap
         GameplayUI _gameplayUi;
         EventDirector _director;
         VehicleInteriorBuilder _worldBuilder;
-        FirstPersonController _player;
+        FreeLookCamera _camera;
         GameObject _levelRoot;
         GameObject _hubRoot;
 
@@ -50,7 +48,6 @@ namespace PeduliTransit.Bootstrap
             if (FindObjectOfType<GameBootstrap>() != null)
                 return;
 
-            // Buat kerangka hierarchy di scene aktif (bukan DontDestroyOnLoad)
             var root = new GameObject("PeduliTransit");
             var systems = new GameObject("Systems");
             systems.transform.SetParent(root.transform, false);
@@ -129,7 +126,6 @@ namespace PeduliTransit.Bootstrap
             if (playerSpawn.position == Vector3.zero)
                 playerSpawn.position = new Vector3(0f, 0.1f, 0f);
 
-            // Pastikan bootstrap ada di Systems
             if (transform.parent != systemsRoot)
                 transform.SetParent(systemsRoot, false);
             gameObject.name = "GameBootstrap";
@@ -144,7 +140,6 @@ namespace PeduliTransit.Bootstrap
             interiorSlots.interiorAnchor = interiorAnchor;
             interiorSlots.playerSpawn = playerSpawn;
 
-            // Folder placeholder biar teman tahu taruh asset di mana
             FindOrCreateChild(levelFolder, "Interior_KRL_PlacePrefabHere");
             FindOrCreateChild(levelFolder, "Interior_Bus_PlacePrefabHere");
             FindOrCreateChild(levelFolder, "Interior_Angkutan_PlacePrefabHere");
@@ -167,9 +162,26 @@ namespace PeduliTransit.Bootstrap
         {
             foreach (var cam in FindObjectsOfType<Camera>())
             {
-                if (cam.transform.IsChildOf(worldRoot))
+                if (worldRoot != null && cam.transform.IsChildOf(worldRoot))
                     continue;
-                // Biarkan Main Camera scene aktif sampai HubCamera dibuat
+
+                cam.enabled = false;
+                var listener = cam.GetComponent<AudioListener>();
+                if (listener != null)
+                    listener.enabled = false;
+            }
+        }
+
+        void ClearUiChildren()
+        {
+            if (_canvas == null)
+                return;
+
+            for (int i = _canvas.transform.childCount - 1; i >= 0; i--)
+            {
+                var child = _canvas.transform.GetChild(i).gameObject;
+                child.SetActive(false);
+                Destroy(child);
             }
         }
 
@@ -203,6 +215,7 @@ namespace PeduliTransit.Bootstrap
             if (existing != null)
             {
                 _canvas = existing;
+                ResponsiveUI.ApplyCanvasScaler(_canvas);
                 return;
             }
 
@@ -212,19 +225,7 @@ namespace PeduliTransit.Bootstrap
             _canvas = canvasGo.GetComponent<Canvas>();
             _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             _canvas.sortingOrder = 100;
-
-            var scaler = canvasGo.GetComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920f, 1080f);
-        }
-
-        void ClearUiChildren()
-        {
-            if (_canvas == null)
-                return;
-
-            for (int i = _canvas.transform.childCount - 1; i >= 0; i--)
-                Destroy(_canvas.transform.GetChild(i).gameObject);
+            ResponsiveUI.ApplyCanvasScaler(_canvas);
         }
 
         void ShowLogin()
@@ -291,7 +292,7 @@ namespace PeduliTransit.Bootstrap
             SpawnLevel(mode);
 
             _director.StopDirector();
-            _director.Begin(mode, _gameplayUi, _worldBuilder, _player, null);
+            _director.Begin(mode, _gameplayUi, _worldBuilder, _camera, null);
         }
 
         void SpawnLevel(TransportMode mode)
@@ -310,7 +311,6 @@ namespace PeduliTransit.Bootstrap
                 ? interiorSlots.interiorAnchor
                 : interiorParent.transform;
 
-            // Pastikan array prefab NPC terbaru (kalau diubah lewat Inspector saat play mode) ikut terpakai.
             _worldBuilder.CharacterPrefabs = npcCharacterPrefabs;
             _worldBuilder.NpcAnimatorController = npcAnimatorController;
 
@@ -320,7 +320,7 @@ namespace PeduliTransit.Bootstrap
                 instance.name = $"InteriorAsset_{mode}";
                 instance.transform.position = anchor.position;
                 instance.transform.rotation = anchor.rotation;
-                // Tetap spawn NPC procedural di atas asset
+
                 _worldBuilder.BuildNpcsOnly(mode, interiorParent.transform);
             }
             else
@@ -335,32 +335,84 @@ namespace PeduliTransit.Bootstrap
                 ? interiorSlots.playerSpawn.position
                 : new Vector3(0f, 0.1f, 0f);
 
-            var playerGo = new GameObject("PlayerAvatar", typeof(CharacterController), typeof(FirstPersonController));
-            playerGo.transform.SetParent(playerParent.transform, false);
-            playerGo.transform.position = spawnPos;
+            var avatar = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            avatar.name = "PlayerAvatar";
+            avatar.transform.SetParent(playerParent.transform, false);
+            avatar.transform.position = spawnPos + Vector3.up * 0.9f;
+            avatar.transform.localScale = new Vector3(0.55f, 0.9f, 0.55f);
+            UnityEngine.Object.Destroy(avatar.GetComponent<Collider>());
+            var avatarRend = avatar.GetComponent<Renderer>();
+            if (avatarRend != null)
+            {
+                avatarRend.material = new Material(Shader.Find("Standard"));
+                avatarRend.material.color = new Color(0.2f, 0.75f, 0.7f);
+            }
 
-            var cc = playerGo.GetComponent<CharacterController>();
-            cc.height = 1.8f;
-            cc.radius = 0.35f;
-            cc.center = new Vector3(0f, 0.9f, 0f);
-
-            var camGo = new GameObject("PlayerCamera", typeof(Camera), typeof(AudioListener));
-            camGo.transform.SetParent(playerGo.transform, false);
-            camGo.transform.localPosition = new Vector3(0f, 1.6f, 0f);
+            var camGo = ResolveFreeLookCamera(playerParent.transform);
             var cam = camGo.GetComponent<Camera>();
             cam.nearClipPlane = 0.05f;
-            cam.fieldOfView = 70f;
+            cam.fieldOfView = 60f;
+            cam.clearFlags = CameraClearFlags.Skybox;
             cam.tag = "MainCamera";
+            cam.enabled = true;
 
             foreach (var c in FindObjectsOfType<Camera>())
             {
-                if (c != cam)
-                    c.enabled = false;
+                if (c == cam)
+                    continue;
+                c.enabled = false;
             }
 
-            _player = playerGo.GetComponent<FirstPersonController>();
-            _player.cameraPivot = camGo.transform;
-            _player.LookEnabled = true;
+            foreach (var listener in FindObjectsOfType<AudioListener>())
+            {
+                if (listener.gameObject != camGo)
+                    listener.enabled = false;
+            }
+
+            _camera = camGo.GetComponent<FreeLookCamera>();
+
+            Vector3 focus = new Vector3(0f, 1.25f, 0f);
+            if (_worldBuilder != null && _worldBuilder.Root != null)
+                focus = _worldBuilder.Root.TransformPoint(new Vector3(0f, 1.25f, 0f));
+
+            if (focus.y < 0.5f)
+                focus.y = 1.25f;
+
+            _camera.Init(focus, yawDegrees: 200f, distance: 4.5f);
+            _camera.LookEnabled = true;
+        }
+
+        GameObject ResolveFreeLookCamera(Transform fallbackParent)
+        {
+            FreeLookCamera existing = null;
+            if (worldRoot != null)
+            {
+                var level = worldRoot.Find("Level");
+                var player = level != null ? level.Find("Player") : null;
+                var sceneCam = player != null ? player.Find("FreeLookCamera") : null;
+                if (sceneCam != null)
+                    existing = sceneCam.GetComponent<FreeLookCamera>();
+            }
+
+            if (existing == null)
+                existing = FindObjectOfType<FreeLookCamera>();
+
+            GameObject camGo;
+            if (existing != null)
+            {
+                camGo = existing.gameObject;
+                if (camGo.GetComponent<Camera>() == null)
+                    camGo.AddComponent<Camera>();
+                if (camGo.GetComponent<AudioListener>() == null)
+                    camGo.AddComponent<AudioListener>();
+            }
+            else
+            {
+                camGo = new GameObject("FreeLookCamera", typeof(Camera), typeof(AudioListener), typeof(FreeLookCamera));
+                camGo.transform.SetParent(fallbackParent, false);
+            }
+
+            return camGo;
         }
 
         void BuildHubAtmosphere()
@@ -412,7 +464,7 @@ namespace PeduliTransit.Bootstrap
             if (_levelRoot != null)
                 Destroy(_levelRoot);
             _levelRoot = null;
-            _player = null;
+            _camera = null;
         }
     }
 }
