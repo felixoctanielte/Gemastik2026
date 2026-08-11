@@ -308,9 +308,10 @@ MonoBehaviour:
   - {fileID: 526703752650664947, guid: 0c5c8c2d8785aa5429a0132d246895bc, type: 3}
   - {fileID: 3752903298859641752, guid: 70b9bb89dccf2f34c85f8887382e4d6b, type: 3}
   npcAnimatorController: {fileID: 9100000, guid: 909da0d784345484ebc66c97f8aa263c, type: 2}
-  playerVisualPrefab: {fileID: 0}
+  playerVisualPrefab: {fileID: 4047456610373203592, guid: d2cc5c4d299c1ed498cde8fae1fa10e7, type: 3}
   playerVisualOffset: {x: 0, y: 0, z: 0}
-  playerAnimatorController: {fileID: 0}
+  playerAnimatorController: {fileID: 9100000, guid: 909da0d784345484ebc66c97f8aa263c, type: 2}
+  phonePrefab: {fileID: 0}
 --- !u!1 &100000051
 GameObject:
   m_ObjectHideFlags: 0

@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using PeduliTransit.Bootstrap;
 using PeduliTransit.Core;
 using PeduliTransit.Data;
 using PeduliTransit.Managers;
@@ -20,6 +21,9 @@ namespace PeduliTransit.Events
         int _index;
         System.Action _onSessionComplete;
         TransportMode _mode;
+
+        const float MinGapSeconds = 7f;
+        const float MaxGapSeconds = 10f;
 
         public void Begin(TransportMode mode, GameplayUI ui, VehicleInteriorBuilder world,
             FreeLookCamera camera, System.Action onSessionComplete)
@@ -42,15 +46,16 @@ namespace PeduliTransit.Events
             };
 
             _ui.ShowHud(modeLabel, GameManager.Instance.Session.currentPoints);
-            SetCam(true);
+            SetPlayerControl(true);
 
             StartCoroutine(RunIntroThenEvents());
         }
 
-        void SetCam(bool enabled)
+        void SetPlayerControl(bool enabled)
         {
             if (_camera != null)
                 _camera.LookEnabled = enabled;
+            GameBootstrap.Instance?.SetPlayerControl(enabled);
         }
 
         static List<IncidentDefinition> PickSessionEvents(List<IncidentDefinition> all, int count)
@@ -99,14 +104,14 @@ namespace PeduliTransit.Events
 
         IEnumerator RunIntroThenEvents()
         {
-
+            // Intro dulu: belum ada kasus aktif.
             yield return ShowBlockingStory(
                 "Pintu & Penumpang",
                 "Perhatikan pintu. Penumpang masuk: kursi kosong → duduk; penuh → berdiri.\n" +
                 "Kursi oranye = prioritas.\n\n" +
-                "Kamera: tahan KLIK KANAN + geser mouse = lihat sekitar | WASD = geser | Scroll = zoom | Q/E = naik/turun.");
+                "Kamera mengikuti MC (cewek). Tahan KLIK KANAN + geser = lihat sekitar | WASD = jalan | Scroll = zoom.");
 
-            SetCam(true);
+            SetPlayerControl(true);
             if (_world != null)
                 yield return StartCoroutine(_world.IntroBoardDemo());
 
@@ -123,16 +128,18 @@ namespace PeduliTransit.Events
                 $"Lapor gangguan lewat WhatsApp (ketuk pesan siap kirim).\n" +
                 $"Salah jenis laporan = −10. Tutup tanpa kirim = 0 (tidak dihukum berat).\n\n" +
                 $"Penanggung jawab: {petugas}.\n" +
-                "Kursi prioritas: TEGUR sendiri atau LAPOR WA.");
+                "Kursi prioritas: TEGUR sendiri atau LAPOR WA.\n\n" +
+                "Kasus muncul satu per satu. Selesaikan dulu, lalu tunggu jeda singkat sebelum kasus berikutnya.");
 
-            SetCam(true);
-            yield return new WaitForSecondsRealtime(1.2f);
+            // Jeda observasi sebelum kasus 1
+            SetPlayerControl(true);
+            yield return new WaitForSecondsRealtime(Random.Range(MinGapSeconds, MaxGapSeconds));
             yield return StartCoroutine(RunNext());
         }
 
         IEnumerator ShowBlockingStory(string title, string body)
         {
-            SetCam(false);
+            SetPlayerControl(false);
             bool done = false;
             _ui.ShowStory(title, body, () => done = true);
             yield return new WaitUntil(() => done);
@@ -142,17 +149,18 @@ namespace PeduliTransit.Events
         {
             if (_index >= _queue.Count)
             {
-                SetCam(false);
+                SetPlayerControl(false);
                 GameManager.Instance.EndSession();
                 _ui.ShowResult(GameManager.Instance.Session, GameManager.Instance.Profile.totalScore);
                 _onSessionComplete?.Invoke();
                 yield break;
             }
 
+            // Satu kasus aktif saja — baru fokus ketika giliran kasus ini.
             var incident = _queue[_index];
             FocusNpc(incident.npcRole);
 
-            SetCam(true);
+            SetPlayerControl(true);
             yield return new WaitForSecondsRealtime(1.0f);
 
             yield return ShowBlockingStory(
@@ -160,7 +168,7 @@ namespace PeduliTransit.Events
                 incident.introStory);
 
             DecisionOutcome? outcome = null;
-            SetCam(false);
+            SetPlayerControl(false);
 
             if (incident.category == EventCategory.Report && incident.allowsNegur)
             {
@@ -181,7 +189,7 @@ namespace PeduliTransit.Events
                     if (wantNegur == true)
                     {
                         outcome = DecisionOutcome.Negur;
-                        SetCam(true);
+                        SetPlayerControl(true);
                         var abuser = _world?.FindByRole(NpcRole.PrioritySeatAbuse);
                         if (abuser != null && _world != null)
                             yield return StartCoroutine(_world.PlayerNegurPriorityRoutine(abuser));
@@ -193,7 +201,7 @@ namespace PeduliTransit.Events
 
                         if (outcome == DecisionOutcome.Yes && _world != null)
                         {
-                            SetCam(true);
+                            SetPlayerControl(true);
                             var culprit = _world.FindByRole(incident.npcRole);
                             yield return StartCoroutine(_world.ResponderResolveRoutine(culprit, incident.escalateOnCorrect));
                         }
@@ -207,7 +215,7 @@ namespace PeduliTransit.Events
 
                 if (outcome == DecisionOutcome.Yes && _world != null)
                 {
-                    SetCam(true);
+                    SetPlayerControl(true);
                     var culprit = _world.FindByRole(incident.npcRole);
                     yield return StartCoroutine(_world.ResponderResolveRoutine(culprit, incident.escalateOnCorrect));
                 }
@@ -219,7 +227,7 @@ namespace PeduliTransit.Events
 
                 if (outcome == DecisionOutcome.Yes && _world != null)
                 {
-                    SetCam(true);
+                    SetPlayerControl(true);
                     yield return StartCoroutine(_world.GiveSeatTo(incident.npcRole));
                 }
             }
@@ -234,9 +242,16 @@ namespace PeduliTransit.Events
             yield return ShowBlockingStory(ResultTitle(outcome.Value), BuildAfterStory(incident, outcome.Value, delta));
 
             _index++;
+            _camera?.ClearLookInterest();
 
-            SetCam(true);
-            yield return new WaitForSecondsRealtime(1.5f);
+            // Kasus selesai → jeda 7–10 detik, baru kasus berikutnya.
+            if (_index < _queue.Count)
+            {
+                SetPlayerControl(true);
+                float gap = Random.Range(MinGapSeconds, MaxGapSeconds);
+                yield return new WaitForSecondsRealtime(gap);
+            }
+
             yield return StartCoroutine(RunNext());
         }
 
@@ -282,14 +297,14 @@ namespace PeduliTransit.Events
                 return;
 
             npc.Highlight(true);
-            _camera.FocusOn(npc.transform, preferredDistance: 4.2f);
+            _camera.FocusOn(npc.transform, preferredDistance: 3.6f);
             PeduliTransit.Audio.AudioManager.Instance?.PlayIncidentAmbience(role);
         }
 
         public void StopDirector()
         {
             StopAllCoroutines();
-            SetCam(false);
+            SetPlayerControl(false);
         }
     }
 }

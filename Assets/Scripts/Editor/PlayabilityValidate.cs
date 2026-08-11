@@ -48,6 +48,16 @@ namespace PeduliTransit.Editor
             }
             else Ok("character_edu sprite load");
 
+            var casual = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Casual1.prefab");
+            if (casual == null)
+                Fail("MC Casual1 tidak ditemukan di Assets/Prefabs/Casual1.prefab");
+            else Ok("MC Casual1 prefab");
+
+            var phone = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/UI/cell_phone.glb");
+            if (phone == null)
+                Debug.LogWarning("[Playability] cell_phone.glb belum siap (Unity perlu import GLB).");
+            else Ok("Phone asset cell_phone.glb");
+
             var busRes = Resources.Load<GameObject>("BusWrapper");
             if (busRes == null)
                 Debug.LogWarning("[Playability] Resources/BusWrapper tidak ada (opsional fallback).");
@@ -58,7 +68,9 @@ namespace PeduliTransit.Editor
                 "PeduliTransit.Bootstrap.GameBootstrap",
                 "PeduliTransit.Events.EventDirector",
                 "PeduliTransit.Player.FreeLookCamera",
+                "PeduliTransit.Player.PlayerMotor",
                 "PeduliTransit.UI.PhoneWhatsAppUI",
+                "PeduliTransit.UI.PhonePropPresenter",
                 "PeduliTransit.UI.UiAssets",
                 "PeduliTransit.World.SeatSlot",
                 "PeduliTransit.World.VehicleDoor"

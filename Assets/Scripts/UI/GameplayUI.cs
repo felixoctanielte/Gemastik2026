@@ -32,6 +32,8 @@ namespace PeduliTransit.UI
         public Font customFont;
 
         PhoneWhatsAppUI _phone;
+        PhonePropPresenter _phoneProp;
+        GameObject _phonePrefab;
 
         Action _onStoryContinue;
         Action<DecisionOutcome> _onDecision;
@@ -58,7 +60,22 @@ namespace PeduliTransit.UI
                 _phone = gameObject.AddComponent<PhoneWhatsAppUI>();
             _phone.Build(canvas);
 
+            _phoneProp = gameObject.GetComponent<PhonePropPresenter>();
+            if (_phoneProp == null)
+                _phoneProp = gameObject.AddComponent<PhonePropPresenter>();
+            if (_phonePrefab != null)
+                _phoneProp.Configure(_phonePrefab);
+
             HideAll();
+        }
+
+        public void ConfigurePhoneProp(GameObject prefab)
+        {
+            _phonePrefab = prefab;
+            if (_phoneProp == null)
+                _phoneProp = gameObject.GetComponent<PhonePropPresenter>()
+                    ?? gameObject.AddComponent<PhonePropPresenter>();
+            _phoneProp.Configure(prefab);
         }
 
         void BuildHud()
@@ -85,7 +102,7 @@ namespace PeduliTransit.UI
                 new Vector2(0f, 12f), new Vector2(0f, 54f));
 
             var hint = UiTheme.MakeText(hintBar.transform,
-                "Kamera: tahan KLIK KANAN + geser = putar | WASD = geser | Scroll = zoom | Q/E = naik/turun", 16,
+                "MC: RMB+geser putar | WASD jalan | Spasi lompat | Scroll zoom", 16,
                 FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.95f, 0.78f, 0.35f, 1f));
             hint.raycastTarget = false;
             UiTheme.Stretch(hint.rectTransform);
@@ -356,6 +373,15 @@ namespace PeduliTransit.UI
             _onDecision = onDecision;
             _decisionLocked = false;
 
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                var freeLook = FindObjectOfType<PeduliTransit.Player.FreeLookCamera>();
+                if (freeLook != null)
+                    cam = freeLook.Cam;
+            }
+            _phoneProp?.Show(cam);
+
             _phone.Show(
                 incident.whatsappContactName,
                 incident.contactSubtitle,
@@ -365,6 +391,7 @@ namespace PeduliTransit.UI
                 {
                     if (_decisionLocked) return;
                     _decisionLocked = true;
+                    _phoneProp?.Hide();
                     onDecision?.Invoke(opt != null && opt.isCorrect
                         ? DecisionOutcome.Yes
                         : DecisionOutcome.WrongReport);
@@ -373,12 +400,14 @@ namespace PeduliTransit.UI
                 {
                     if (_decisionLocked) return;
                     _decisionLocked = true;
+                    _phoneProp?.Hide();
                     onDecision?.Invoke(DecisionOutcome.Cancel);
                 },
                 onTimeout: () =>
                 {
                     if (_decisionLocked) return;
                     _decisionLocked = true;
+                    _phoneProp?.Hide();
                     onDecision?.Invoke(DecisionOutcome.Timeout);
                 }
             );
@@ -443,6 +472,7 @@ namespace PeduliTransit.UI
             if (_choiceRoot) _choiceRoot.SetActive(false);
             if (_resultRoot) _resultRoot.SetActive(false);
             _phone?.Hide();
+            _phoneProp?.Hide();
         }
     }
 }

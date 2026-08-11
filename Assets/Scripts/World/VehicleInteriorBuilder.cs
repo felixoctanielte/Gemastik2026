@@ -54,6 +54,14 @@ namespace PeduliTransit.World
             BuildStandSpots();
             PlaceResponderStation(mode);
             SpawnCrowdWithSeating();
+            var b = InteriorColliderUtility.ComputeRendererBounds(_root);
+            RelayoutSeatsToInterior(b);
+            InteriorDoorBinder.PlaceSideEntrance(_door, _root.transform, b);
+            foreach (var npc in _npcs)
+            {
+                if (npc != null && npc.IsSitting && npc.AssignedSeat != null)
+                    npc.SitAt(npc.AssignedSeat);
+            }
         }
 
         public void BuildNpcsOnly(TransportMode mode, Transform parent)
@@ -69,6 +77,7 @@ namespace PeduliTransit.World
             PlaceResponderStation(mode);
             SpawnCrowdWithSeating();
             AlignCrowdToSiblingMesh(parent);
+            BindDoorsToInteriorAsset(parent);
         }
 
         public void AlignCrowdToSiblingMesh(Transform interiorParent)
@@ -114,19 +123,114 @@ namespace PeduliTransit.World
         {
             var doorRoot = new GameObject("Door");
             doorRoot.transform.SetParent(_root.transform, false);
-            doorRoot.transform.position = new Vector3(7f, 1.2f, 0f);
+            doorRoot.transform.localPosition = new Vector3(6.2f, 1.15f, 0f);
 
-            var left = CreateBox("DoorLeft", new Vector3(7f, 1.2f, 0.55f), new Vector3(0.08f, 2.2f, 0.95f),
-                new Color(0.15f, 0.45f, 0.55f));
+            var left = CreateBox("DoorLeft", doorRoot.transform.position + new Vector3(0f, 0f, 0.55f),
+                new Vector3(0.12f, 2.3f, 1.05f), new Color(0.2f, 0.75f, 0.9f));
             left.transform.SetParent(doorRoot.transform, true);
-            var right = CreateBox("DoorRight", new Vector3(7f, 1.2f, -0.55f), new Vector3(0.08f, 2.2f, 0.95f),
-                new Color(0.15f, 0.45f, 0.55f));
+            var right = CreateBox("DoorRight", doorRoot.transform.position + new Vector3(0f, 0f, -0.55f),
+                new Vector3(0.12f, 2.3f, 1.05f), new Color(0.2f, 0.75f, 0.9f));
             right.transform.SetParent(doorRoot.transform, true);
 
             _door = doorRoot.AddComponent<VehicleDoor>();
             _door.Init(left.transform, right.transform,
-                outside: new Vector3(8.4f, 0f, 0f),
-                inside: new Vector3(5.6f, 0f, 0f));
+                outside: doorRoot.transform.TransformPoint(new Vector3(1.6f, -1.15f, 0f)),
+                inside: doorRoot.transform.TransformPoint(new Vector3(-1.6f, -1.15f, 0f)),
+                autoAxis: false);
+            _door.EnsurePassageCollidersDisabledWhileOpen = true;
+        }
+
+        void BindDoorsToInteriorAsset(Transform interiorParent)
+        {
+            if (_door == null || _root == null)
+                return;
+
+            GameObject assetRoot = null;
+            foreach (Transform child in interiorParent)
+            {
+                if (child == _root.transform)
+                    continue;
+                assetRoot = child.gameObject;
+                break;
+            }
+
+            Bounds b = assetRoot != null
+                ? InteriorColliderUtility.ComputeRendererBounds(assetRoot)
+                : InteriorColliderUtility.ComputeRendererBounds(_root);
+
+            // Re-layout seats to the side benches of the real interior, then place door on the side wall.
+            RelayoutSeatsToInterior(b);
+            InteriorDoorBinder.PlaceSideEntrance(_door, _root.transform, b);
+
+            // Re-apply sit on any already-spawned seated NPCs so they stick to the new slots.
+            foreach (var npc in _npcs)
+            {
+                if (npc == null || !npc.IsSitting || npc.AssignedSeat == null)
+                    continue;
+                npc.SitAt(npc.AssignedSeat);
+            }
+        }
+
+        void RelayoutSeatsToInterior(Bounds worldBounds)
+        {
+            if (_seats.Count == 0 || _root == null)
+                return;
+
+            bool longIsX = worldBounds.size.x >= worldBounds.size.z;
+            float alongSize = longIsX ? worldBounds.size.x : worldBounds.size.z;
+            float sideSize = longIsX ? worldBounds.size.z : worldBounds.size.x;
+            float halfAlong = alongSize * 0.38f;
+            float sideInset = Mathf.Max(0.55f, sideSize * 0.32f);
+            float floorY = worldBounds.min.y;
+
+            // Clear old visual cubes, keep SeatSlot components and retarget them.
+            var visuals = new List<Transform>();
+            foreach (Transform t in _root.transform)
+            {
+                if (t.name.StartsWith("SeatVis") || t.name.StartsWith("Backrest"))
+                    visuals.Add(t);
+            }
+            foreach (var v in visuals)
+                UnityEngine.Object.Destroy(v.gameObject);
+
+            int perSide = Mathf.Max(3, _seats.Count / 2);
+            int index = 0;
+            for (int side = 0; side < 2; side++)
+            {
+                bool positiveSide = side == 0;
+                Vector3 outDir = longIsX
+                    ? (positiveSide ? Vector3.forward : Vector3.back)
+                    : (positiveSide ? Vector3.right : Vector3.left);
+                Vector3 along = longIsX ? Vector3.right : Vector3.forward;
+
+                for (int i = 0; i < perSide && index < _seats.Count; i++, index++)
+                {
+                    float t = perSide == 1 ? 0f : (i / (float)(perSide - 1)) * 2f - 1f;
+                    Vector3 pos = worldBounds.center + along * (t * halfAlong) + outDir * sideInset;
+                    pos.y = floorY;
+
+                    var slot = _seats[index];
+                    slot.transform.position = pos;
+                    // Face toward aisle (opposite of outDir).
+                    slot.transform.rotation = Quaternion.LookRotation(-outDir, Vector3.up);
+                    slot.cushionHeight = 0.42f;
+                    slot.sitDepth = 0.05f;
+                    slot.IsPriority = index >= _seats.Count - 4;
+
+                    // Seat cushion visual flush with slot facing.
+                    var cushion = CreateBox("SeatVis",
+                        pos + Vector3.up * 0.42f - outDir * 0.05f,
+                        new Vector3(0.75f, 0.1f, 0.55f),
+                        slot.IsPriority ? new Color(0.8f, 0.4f, 0.2f) : new Color(0.32f, 0.38f, 0.42f));
+                    cushion.transform.rotation = slot.transform.rotation;
+
+                    var back = CreateBox("Backrest",
+                        pos + Vector3.up * 0.75f + outDir * 0.22f,
+                        new Vector3(0.75f, 0.55f, 0.08f),
+                        new Color(0.28f, 0.32f, 0.36f));
+                    back.transform.rotation = slot.transform.rotation;
+                }
+            }
         }
 
         void BuildSeats()
@@ -142,18 +246,24 @@ namespace PeduliTransit.World
 
         void CreateSeatSlot(Vector3 pos, bool faceNegZ, bool priority)
         {
-            CreateBox("SeatVis", pos, new Vector3(0.9f, 0.45f, 0.7f),
+            // Seat pivot on floor; cushion surface ~0.45 above.
+            Vector3 floorPos = new Vector3(pos.x, 0f, pos.z);
+            Vector3 cushion = floorPos + Vector3.up * 0.42f;
+
+            CreateBox("SeatVis", cushion, new Vector3(0.9f, 0.12f, 0.7f),
                 priority ? new Color(0.75f, 0.35f, 0.2f) : new Color(0.35f, 0.4f, 0.45f));
-            float backZ = faceNegZ ? 0.35f : -0.35f;
-            CreateBox("Backrest", pos + new Vector3(0f, 0.55f, backZ),
-                new Vector3(0.9f, 0.7f, 0.12f), new Color(0.3f, 0.34f, 0.38f));
+            float backZ = faceNegZ ? 0.32f : -0.32f;
+            CreateBox("Backrest", cushion + new Vector3(0f, 0.35f, backZ),
+                new Vector3(0.9f, 0.7f, 0.1f), new Color(0.3f, 0.34f, 0.38f));
 
             var slotGo = new GameObject(priority ? "SeatPriority" : "SeatNormal");
             slotGo.transform.SetParent(_root.transform, false);
-            slotGo.transform.position = new Vector3(pos.x, 0f, pos.z);
+            slotGo.transform.position = floorPos;
             slotGo.transform.rotation = Quaternion.Euler(0f, faceNegZ ? 180f : 0f, 0f);
             var slot = slotGo.AddComponent<SeatSlot>();
             slot.IsPriority = priority;
+            slot.cushionHeight = 0.38f;
+            slot.sitDepth = 0.06f;
             _seats.Add(slot);
         }
 
@@ -254,7 +364,7 @@ namespace PeduliTransit.World
             foreach (var s in _seats)
                 if (s.IsOccupied) occupied++;
 
-            return occupied >= _seats.Count - 3;
+            return occupied >= _seats.Count - 1;
         }
 
         SeatSlot FindFreeSeat(bool priorityOnly)
@@ -387,6 +497,7 @@ namespace PeduliTransit.World
             yield return _door.Open();
             PeduliTransit.Audio.AudioManager.Instance?.PlaySfx(PeduliTransit.Audio.SfxId.DoorOpen);
             PeduliTransit.Audio.AudioManager.Instance?.PlaySfx(PeduliTransit.Audio.SfxId.NpcBoard);
+
             var npc = CreateNpc(role, _door.OutsidePoint, false);
             _npcs.Add(npc);
             yield return npc.WalkToRoutine(_door.InsidePoint);
@@ -396,11 +507,13 @@ namespace PeduliTransit.World
             {
                 yield return npc.WalkToRoutine(seat.SitWorldPosition);
                 npc.AssignSeat(seat);
+                // Biarkan 1 frame pose duduk settle.
+                yield return null;
             }
             else
             {
                 Vector3 stand = _standSpots.Count > 0
-                    ? _standSpots[Random.Range(0, _standSpots.Count)]
+                    ? _root.transform.TransformPoint(_standSpots[Random.Range(0, _standSpots.Count)])
                     : _door.InsidePoint + new Vector3(-1.5f, 0f, 0f);
                 yield return npc.WalkToRoutine(stand);
                 npc.StandAt(stand, Quaternion.identity);
@@ -442,9 +555,10 @@ namespace PeduliTransit.World
                 yield return _door.Close();
                 PeduliTransit.Audio.AudioManager.Instance?.PlaySfx(PeduliTransit.Audio.SfxId.DoorClose);
 
-                Vector3 station = _mode == TransportMode.AngkutanUmum
+                Vector3 stationLocal = _mode == TransportMode.AngkutanUmum
                     ? new Vector3(-5.8f, 0f, 0.9f)
                     : new Vector3(-5.5f, 0f, 0f);
+                Vector3 station = _root.transform.TransformPoint(stationLocal);
                 yield return _responder.WalkToRoutine(station);
             }
             else
@@ -454,17 +568,19 @@ namespace PeduliTransit.World
                 {
                     var freed = culprit.AssignedSeat;
                     culprit.VacateSeat();
-                    Vector3 stand = _standSpots.Count > 0 ? _standSpots[0] : culprit.transform.position + Vector3.forward;
+                    Vector3 standLocal = _standSpots.Count > 0 ? _standSpots[0] : new Vector3(0f, 0f, 0.6f);
+                    Vector3 stand = _root.transform.TransformPoint(standLocal);
                     yield return culprit.WalkToRoutine(stand);
                     culprit.StandAt(stand, Quaternion.identity);
 
                     TrySeatNearestPriorityEligible(freed);
                 }
 
-                Vector3 station = _mode == TransportMode.AngkutanUmum
+                Vector3 stationLocal2 = _mode == TransportMode.AngkutanUmum
                     ? new Vector3(-5.8f, 0f, 0.9f)
                     : new Vector3(-5.5f, 0f, 0f);
-                yield return _responder.WalkToRoutine(station);
+                Vector3 station2 = _root.transform.TransformPoint(stationLocal2);
+                yield return _responder.WalkToRoutine(station2);
                 if (_door != null && _door.IsOpen)
                     yield return _door.Close();
             }
@@ -512,9 +628,10 @@ namespace PeduliTransit.World
                     {
                         var donor = s.Occupant;
                         donor.VacateSeat();
-                        Vector3 stand = _standSpots.Count > 0
+                        Vector3 standLocal = _standSpots.Count > 0
                             ? _standSpots[Random.Range(0, _standSpots.Count)]
-                            : donor.transform.position + Vector3.forward;
+                            : new Vector3(0f, 0f, 0.6f);
+                        Vector3 stand = _root.transform.TransformPoint(standLocal);
                         donor.StandAt(stand, Quaternion.identity);
                         seat = s;
                         break;
@@ -539,7 +656,10 @@ namespace PeduliTransit.World
             yield return new WaitForSeconds(0.4f);
             var seat = abuser.AssignedSeat;
             abuser.VacateSeat();
-            Vector3 stand = _standSpots.Count > 0 ? _standSpots[1 % _standSpots.Count] : abuser.transform.position + Vector3.left;
+            Vector3 standLocal = _standSpots.Count > 0
+                ? _standSpots[1 % _standSpots.Count]
+                : new Vector3(-1f, 0f, 0.5f);
+            Vector3 stand = _root.transform.TransformPoint(standLocal);
             yield return abuser.WalkToRoutine(stand);
             abuser.StandAt(stand, Quaternion.identity);
             TrySeatNearestPriorityEligible(seat);

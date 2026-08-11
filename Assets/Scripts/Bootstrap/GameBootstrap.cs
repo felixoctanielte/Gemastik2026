@@ -27,10 +27,11 @@ namespace PeduliTransit.Bootstrap
         [SerializeField] RuntimeAnimatorController npcAnimatorController;
 
         [Header("Player Visual")]
-        [Tooltip("Drag prefab Casual1 (Assets/AnimeGirls/Casual1/Casual1) ke sini")]
+        [Tooltip("Drag prefab Casual1 (Assets/Prefabs/Casual1) — MC cewek")]
         [SerializeField] GameObject playerVisualPrefab;
         [SerializeField] Vector3 playerVisualOffset = Vector3.zero;
         [SerializeField] RuntimeAnimatorController playerAnimatorController;
+        [SerializeField] GameObject phonePrefab;
 
         Canvas _canvas;
         LoginUI _login;
@@ -39,8 +40,10 @@ namespace PeduliTransit.Bootstrap
         EventDirector _director;
         VehicleInteriorBuilder _worldBuilder;
         FreeLookCamera _camera;
+        PlayerMotor _playerMotor;
         GameObject _levelRoot;
         GameObject _hubRoot;
+        GameObject _playerRoot;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void AutoStart()
@@ -85,6 +88,8 @@ namespace PeduliTransit.Bootstrap
             EnsureLighting();
             BuildCanvas();
 
+            AutoWireMissingAssets();
+
             _worldBuilder = new VehicleInteriorBuilder();
             _worldBuilder.CharacterPrefabs = npcCharacterPrefabs;
             _worldBuilder.NpcAnimatorController = npcAnimatorController;
@@ -100,7 +105,78 @@ namespace PeduliTransit.Bootstrap
                 _gameplayUi = GetComponent<GameplayUI>();
 
             _gameplayUi.Init(_canvas.transform);
+            _gameplayUi.ConfigurePhoneProp(phonePrefab != null ? phonePrefab : PhonePropPresenter.TryLoadPhonePrefab());
             ShowLogin();
+        }
+
+        void AutoWireMissingAssets()
+        {
+            if (playerVisualPrefab == null)
+                playerVisualPrefab = LoadFirstPrefab(
+                    "Assets/Prefabs/Casual1.prefab",
+                    "Assets/AnimeGirls/Casual1/Casual1.prefab");
+
+            if (playerAnimatorController == null)
+                playerAnimatorController = LoadAnimator("Assets/Controller/PlayerController.controller");
+
+            if (npcAnimatorController == null)
+                npcAnimatorController = playerAnimatorController;
+
+            if (phonePrefab == null)
+                phonePrefab = PhonePropPresenter.TryLoadPhonePrefab();
+
+            if ((npcCharacterPrefabs == null || npcCharacterPrefabs.Length == 0))
+            {
+                npcCharacterPrefabs = new[]
+                {
+                    LoadFirstPrefab("Assets/Prefabs/npc_csl_00_character_01f_01.prefab"),
+                    LoadFirstPrefab("Assets/Prefabs/npc_csl_00_character_01f_03.prefab"),
+                    LoadFirstPrefab("Assets/Prefabs/npc_csl_00_character_02f_01.prefab"),
+                    LoadFirstPrefab("Assets/Prefabs/npc_csl_00_character_02f_02.prefab"),
+                    LoadFirstPrefab("Assets/Prefabs/npc_csl_00_character_02f_03.prefab"),
+                };
+            }
+
+            if (interiorSlots != null)
+            {
+                if (interiorSlots.krlInteriorPrefab == null)
+                    interiorSlots.krlInteriorPrefab = LoadFirstPrefab("Assets/Prefabs/KRLWrapper.prefab");
+                if (interiorSlots.busInteriorPrefab == null)
+                    interiorSlots.busInteriorPrefab = LoadFirstPrefab("Assets/Prefabs/BusWrapper.prefab")
+                        ?? Resources.Load<GameObject>("BusWrapper");
+                if (interiorSlots.angkutanInteriorPrefab == null)
+                    interiorSlots.angkutanInteriorPrefab = LoadFirstPrefab("Assets/Prefabs/AngkotWrapper.prefab");
+            }
+        }
+
+        static GameObject LoadFirstPrefab(params string[] paths)
+        {
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrEmpty(path))
+                    continue;
+#if UNITY_EDITOR
+                var go = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (go != null)
+                    return go;
+#endif
+                var fileName = System.IO.Path.GetFileNameWithoutExtension(path);
+                var fromRes = Resources.Load<GameObject>(fileName);
+                if (fromRes != null)
+                    return fromRes;
+            }
+
+            return null;
+        }
+
+        static RuntimeAnimatorController LoadAnimator(string path)
+        {
+#if UNITY_EDITOR
+            var ctrl = UnityEditor.AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(path);
+            if (ctrl != null)
+                return ctrl;
+#endif
+            return Resources.Load<RuntimeAnimatorController>("PlayerController");
         }
 
         public void EnsureHierarchy(Transform peduliRoot)
@@ -298,6 +374,7 @@ namespace PeduliTransit.Bootstrap
         void SpawnLevel(TransportMode mode)
         {
             ClearLevel();
+            AutoWireMissingAssets();
 
             var levelFolder = worldRoot != null ? worldRoot.Find("Level") : null;
             _levelRoot = new GameObject($"LevelSession_{mode}");
@@ -314,44 +391,49 @@ namespace PeduliTransit.Bootstrap
             _worldBuilder.CharacterPrefabs = npcCharacterPrefabs;
             _worldBuilder.NpcAnimatorController = npcAnimatorController;
 
+            GameObject interiorInstance = null;
             if (prefab != null)
             {
-                var instance = Instantiate(prefab, interiorParent.transform);
-                instance.name = $"InteriorAsset_{mode}";
-                instance.transform.position = anchor.position;
-                instance.transform.rotation = anchor.rotation;
+                interiorInstance = Instantiate(prefab, interiorParent.transform);
+                interiorInstance.name = $"InteriorAsset_{mode}";
+                interiorInstance.transform.position = anchor.position;
+                interiorInstance.transform.rotation = anchor.rotation;
+                InteriorColliderUtility.EnsureColliders(interiorInstance);
 
                 _worldBuilder.BuildNpcsOnly(mode, interiorParent.transform);
             }
             else
             {
                 _worldBuilder.Build(mode, interiorParent.transform);
+                if (_worldBuilder.Root != null)
+                    InteriorColliderUtility.EnsureColliders(_worldBuilder.Root.gameObject);
             }
+
+            Bounds interiorBounds = InteriorColliderUtility.ComputeRendererBounds(interiorParent);
+            InteriorColliderUtility.EnsurePlayableFloor(interiorParent.transform, interiorBounds);
+
+            Vector3 spawnPos = ResolvePlayerSpawn(interiorBounds);
 
             var playerParent = new GameObject("Player");
             playerParent.transform.SetParent(_levelRoot.transform, false);
+            _playerRoot = playerParent;
 
-            Vector3 spawnPos = interiorSlots != null && interiorSlots.playerSpawn != null
-                ? interiorSlots.playerSpawn.position
-                : new Vector3(0f, 0.1f, 0f);
+            var mc = SpawnMainCharacter(playerParent.transform, spawnPos);
 
-            var avatar = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            avatar.name = "PlayerAvatar";
-            avatar.transform.SetParent(playerParent.transform, false);
-            avatar.transform.position = spawnPos + Vector3.up * 0.9f;
-            avatar.transform.localScale = new Vector3(0.55f, 0.9f, 0.55f);
-            UnityEngine.Object.Destroy(avatar.GetComponent<Collider>());
-            var avatarRend = avatar.GetComponent<Renderer>();
-            if (avatarRend != null)
+            // Place feet on gameplay floor before motor runs.
+            float floorY = interiorBounds.min.y;
+            var cc = mc.GetComponent<CharacterController>();
+            if (cc != null)
             {
-                avatarRend.material = new Material(Shader.Find("Standard"));
-                avatarRend.material.color = new Color(0.2f, 0.75f, 0.7f);
+                cc.enabled = false;
+                mc.transform.position = new Vector3(spawnPos.x, floorY + 0.05f, spawnPos.z);
+                cc.enabled = true;
             }
 
             var camGo = ResolveFreeLookCamera(playerParent.transform);
             var cam = camGo.GetComponent<Camera>();
             cam.nearClipPlane = 0.05f;
-            cam.fieldOfView = 60f;
+            cam.fieldOfView = 58f;
             cam.clearFlags = CameraClearFlags.Skybox;
             cam.tag = "MainCamera";
             cam.enabled = true;
@@ -370,16 +452,101 @@ namespace PeduliTransit.Bootstrap
             }
 
             _camera = camGo.GetComponent<FreeLookCamera>();
-
-            Vector3 focus = new Vector3(0f, 1.25f, 0f);
-            if (_worldBuilder != null && _worldBuilder.Root != null)
-                focus = _worldBuilder.Root.TransformPoint(new Vector3(0f, 1.25f, 0f));
-
-            if (focus.y < 0.5f)
-                focus.y = 1.25f;
-
-            _camera.Init(focus, yawDegrees: 200f, distance: 4.5f);
+            var ignore = mc.GetComponentsInChildren<Collider>();
+            _camera.SetFollowTarget(mc.transform, ignore);
+            _camera.Init(mc.transform.position + Vector3.up * 1.45f, yawDegrees: mc.transform.eulerAngles.y, distance: 3.2f);
             _camera.LookEnabled = true;
+
+            _playerMotor = mc.GetComponent<PlayerMotor>();
+            if (_playerMotor == null)
+                _playerMotor = mc.AddComponent<PlayerMotor>();
+            _playerMotor.Init(_camera);
+            _playerMotor.SnapToGround(5f);
+            _playerMotor.MoveEnabled = true;
+
+            _gameplayUi?.ConfigurePhoneProp(phonePrefab != null ? phonePrefab : PhonePropPresenter.TryLoadPhonePrefab());
+        }
+
+        Vector3 ResolvePlayerSpawn(Bounds interiorBounds)
+        {
+            Vector3 spawnPos = interiorSlots != null && interiorSlots.playerSpawn != null
+                ? interiorSlots.playerSpawn.position
+                : new Vector3(0f, 0.05f, 0f);
+
+            if (interiorBounds.size.magnitude > 1f)
+            {
+                Vector3 centerAisle = new Vector3(interiorBounds.center.x, interiorBounds.min.y + 0.05f, interiorBounds.center.z);
+                if (spawnPos.sqrMagnitude < 0.01f || !interiorBounds.Contains(spawnPos + Vector3.up))
+                    spawnPos = centerAisle;
+            }
+
+            if (_worldBuilder != null && _worldBuilder.Root != null)
+            {
+                var fallback = _worldBuilder.Root.TransformPoint(new Vector3(2.2f, 0.05f, 0f));
+                if (interiorBounds.size.magnitude <= 1f)
+                    spawnPos = fallback;
+            }
+
+            return spawnPos;
+        }
+
+        GameObject SpawnMainCharacter(Transform parent, Vector3 spawnPos)
+        {
+            GameObject mc;
+            var visualPrefab = playerVisualPrefab;
+            if (visualPrefab == null)
+                visualPrefab = LoadFirstPrefab("Assets/Prefabs/Casual1.prefab", "Assets/AnimeGirls/Casual1/Casual1.prefab");
+
+            if (visualPrefab != null)
+            {
+                mc = Instantiate(visualPrefab, parent);
+                mc.name = "MC_Casual1";
+                mc.transform.position = spawnPos + playerVisualOffset;
+                mc.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
+                mc.transform.localScale = Vector3.one;
+
+                foreach (var col in mc.GetComponentsInChildren<Collider>())
+                    Destroy(col);
+
+                if (playerAnimatorController != null)
+                {
+                    var anim = mc.GetComponentInChildren<Animator>();
+                    if (anim != null)
+                    {
+                        anim.runtimeAnimatorController = playerAnimatorController;
+                        anim.applyRootMotion = false;
+                        anim.enabled = true;
+                        anim.speed = 1f;
+                        anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                    }
+                }
+            }
+            else
+            {
+                mc = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                mc.name = "MC_Fallback";
+                mc.transform.SetParent(parent, false);
+                mc.transform.position = spawnPos + Vector3.up * 0.9f;
+                mc.transform.localScale = new Vector3(0.55f, 0.9f, 0.55f);
+                Destroy(mc.GetComponent<Collider>());
+                var rend = mc.GetComponent<Renderer>();
+                if (rend != null)
+                {
+                    rend.material = new Material(Shader.Find("Standard"));
+                    rend.material.color = new Color(0.85f, 0.55f, 0.7f);
+                }
+            }
+
+            var controller = mc.GetComponent<CharacterController>();
+            if (controller == null)
+                controller = mc.AddComponent<CharacterController>();
+            controller.height = 1.6f;
+            controller.radius = 0.28f;
+            controller.center = new Vector3(0f, 0.85f, 0f);
+            controller.skinWidth = 0.05f;
+            controller.enabled = true;
+
+            return mc;
         }
 
         GameObject ResolveFreeLookCamera(Transform fallbackParent)
@@ -465,6 +632,16 @@ namespace PeduliTransit.Bootstrap
                 Destroy(_levelRoot);
             _levelRoot = null;
             _camera = null;
+            _playerMotor = null;
+            _playerRoot = null;
+        }
+
+        public void SetPlayerControl(bool enabled)
+        {
+            if (_camera != null)
+                _camera.LookEnabled = enabled;
+            if (_playerMotor != null)
+                _playerMotor.MoveEnabled = enabled;
         }
     }
 }

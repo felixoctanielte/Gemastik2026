@@ -14,7 +14,7 @@ namespace PeduliTransit.EditorTools
     {
         const string ScenePath = "Assets/Scenes/SampleScene.unity";
         const string ControlsHint =
-            "Kamera: tahan KLIK KANAN + geser mouse = lihat sekitar | WASD = geser | Scroll = zoom | Q/E = naik/turun";
+            "Kamera di MC: tahan KLIK KANAN + geser mouse = lihat sekitar | WASD = jalan | Scroll = zoom";
 
         [MenuItem("Peduli Transit/Setup Hierarchy Di Scene")]
         public static void SetupHierarchy()
@@ -25,7 +25,7 @@ namespace PeduliTransit.EditorTools
                 "Peduli Transit",
                 "Hierarchy sudah dibuat di SampleScene!\n\n" +
                 "PeduliTransit\n" +
-                " ├ Systems / GameBootstrap\n" +
+                " ├ Systems / GameBootstrap (MC Casual1 + interior + phone auto-wire)\n" +
                 " ├ UI / CameraControlsHint\n" +
                 " └ World / Level / Player / FreeLookCamera\n\n" +
                 ControlsHint + "\n\n" +
@@ -45,11 +45,57 @@ namespace PeduliTransit.EditorTools
                 "OK");
         }
 
-        public static void BatchUpdateScene()
+        [MenuItem("Peduli Transit/Fix Assets & Scene (Gemastik Ready)")]
+        public static void FixAllForGemastik()
         {
             var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
             ApplyHierarchy(scene);
-            Debug.Log("[PeduliTransit] SampleScene updated with FreeLookCamera + CameraControlsHint.");
+
+            // Mirror phone + Casual1 into Resources for runtime fallback / build.
+            EnsureResourcesCopy("Assets/Prefabs/Casual1.prefab", "Assets/Resources/Casual1.prefab");
+            var phone = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/UI/cell_phone.glb");
+            if (phone != null)
+            {
+                var folder = "Assets/Resources";
+                if (!AssetDatabase.IsValidFolder(folder))
+                    AssetDatabase.CreateFolder("Assets", "Resources");
+                var dest = "Assets/Resources/CellPhone.prefab";
+                if (AssetDatabase.LoadAssetAtPath<GameObject>(dest) == null)
+                {
+                    var instance = PrefabUtility.InstantiatePrefab(phone) as GameObject;
+                    PrefabUtility.SaveAsPrefabAsset(instance, dest);
+                    Object.DestroyImmediate(instance);
+                }
+            }
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            EditorUtility.DisplayDialog(
+                "Peduli Transit",
+                "Scene + assets sudah di-wire untuk testing Gemastik.\n\n" +
+                "• MC Casual1 (cewek)\n" +
+                "• Interior KRL / Bus / Angkot\n" +
+                "• Phone cell_phone → Resources/CellPhone\n" +
+                "• Kamera follow MC + anti tembus tembok\n" +
+                "• Kasus sequential + jeda 7–10 detik\n\n" +
+                "Buka SampleScene → Play.",
+                "OK");
+        }
+
+        public static void BatchUpdateScene()
+        {
+            FixAllForGemastik();
+        }
+
+        static void EnsureResourcesCopy(string src, string dest)
+        {
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(src) == null)
+                return;
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(dest) != null)
+                return;
+            if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+                AssetDatabase.CreateFolder("Assets", "Resources");
+            AssetDatabase.CopyAsset(src, dest);
         }
 
         static void ApplyHierarchy(Scene scene)
@@ -96,6 +142,7 @@ namespace PeduliTransit.EditorTools
             if (bootstrapGo.GetComponent<GameBootstrap>() == null)
                 bootstrapGo.AddComponent<GameBootstrap>();
 
+            WireBootstrapAssets(bootstrapGo.GetComponent<GameBootstrap>(), slots);
             SetupFreeLookCamera(playerFolder);
             SetupControlsHint(ui);
             RetireDefaultMainCamera();
@@ -110,6 +157,81 @@ namespace PeduliTransit.EditorTools
 
             Selection.activeGameObject = rootGo;
             EditorGUIUtility.PingObject(rootGo);
+        }
+
+        static void WireBootstrapAssets(GameBootstrap bootstrap, InteriorAssetSlots slots)
+        {
+            if (bootstrap == null)
+                return;
+
+            var so = new SerializedObject(bootstrap);
+
+            AssignPrefab(so, "playerVisualPrefab",
+                "Assets/Prefabs/Casual1.prefab",
+                "Assets/AnimeGirls/Casual1/Casual1.prefab");
+            AssignAnimator(so, "playerAnimatorController", "Assets/Controller/PlayerController.controller");
+            AssignAnimator(so, "npcAnimatorController", "Assets/Controller/PlayerController.controller");
+            AssignPrefab(so, "phonePrefab", "Assets/UI/cell_phone.glb");
+
+            var npcProp = so.FindProperty("npcCharacterPrefabs");
+            if (npcProp != null && npcProp.arraySize == 0)
+            {
+                string[] npcPaths =
+                {
+                    "Assets/Prefabs/npc_csl_00_character_01f_01.prefab",
+                    "Assets/Prefabs/npc_csl_00_character_01f_03.prefab",
+                    "Assets/Prefabs/npc_csl_00_character_02f_01.prefab",
+                    "Assets/Prefabs/npc_csl_00_character_02f_02.prefab",
+                    "Assets/Prefabs/npc_csl_00_character_02f_03.prefab",
+                };
+                npcProp.arraySize = npcPaths.Length;
+                for (int i = 0; i < npcPaths.Length; i++)
+                {
+                    var go = AssetDatabase.LoadAssetAtPath<GameObject>(npcPaths[i]);
+                    npcProp.GetArrayElementAtIndex(i).objectReferenceValue = go;
+                }
+            }
+
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            if (slots != null)
+            {
+                var slotSo = new SerializedObject(slots);
+                AssignToProperty(slotSo, "krlInteriorPrefab", "Assets/Prefabs/KRLWrapper.prefab");
+                AssignToProperty(slotSo, "busInteriorPrefab", "Assets/Prefabs/BusWrapper.prefab");
+                AssignToProperty(slotSo, "angkutanInteriorPrefab", "Assets/Prefabs/AngkotWrapper.prefab");
+                slotSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+        }
+
+        static void AssignPrefab(SerializedObject so, string propName, params string[] paths)
+        {
+            var prop = so.FindProperty(propName);
+            if (prop == null || prop.objectReferenceValue != null)
+                return;
+            foreach (var path in paths)
+            {
+                var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (go == null) continue;
+                prop.objectReferenceValue = go;
+                return;
+            }
+        }
+
+        static void AssignAnimator(SerializedObject so, string propName, string path)
+        {
+            var prop = so.FindProperty(propName);
+            if (prop == null || prop.objectReferenceValue != null)
+                return;
+            prop.objectReferenceValue = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(path);
+        }
+
+        static void AssignToProperty(SerializedObject so, string propName, string path)
+        {
+            var prop = so.FindProperty(propName);
+            if (prop == null || prop.objectReferenceValue != null)
+                return;
+            prop.objectReferenceValue = AssetDatabase.LoadAssetAtPath<GameObject>(path);
         }
 
         static void SetupFreeLookCamera(Transform playerFolder)
@@ -165,11 +287,11 @@ namespace PeduliTransit.EditorTools
                 note = hintGo.AddComponent<CameraControlsSceneHint>();
 
             note.controls =
-                "Kamera (FreeLook):\n" +
+                "Kamera mengikuti MC cewek:\n" +
                 "• Tahan KLIK KANAN + geser mouse = lihat sekitar\n" +
-                "• WASD = geser\n" +
+                "• WASD = jalan\n" +
                 "• Scroll = zoom\n" +
-                "• Q / E = naik / turun";
+                "• Kasus muncul satu per satu + jeda 7–10 detik";
 
             hintGo.name = "CameraControlsHint";
             hintGo.SetActive(true);

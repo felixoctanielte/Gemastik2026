@@ -17,6 +17,7 @@ namespace PeduliTransit.NPC
         TextMesh _label;
         Animator _animator;
         RuntimeAnimatorController _controller;
+        NpcSitPose _sitPose;
         bool _usingCharacterModel;
 
         [SerializeField] float walkSpeed = 1.35f;
@@ -50,6 +51,11 @@ namespace PeduliTransit.NPC
                 _animator.runtimeAnimatorController = animatorController;
                 _animator.applyRootMotion = false;
             }
+
+            _sitPose = GetComponent<NpcSitPose>();
+            if (_sitPose == null)
+                _sitPose = gameObject.AddComponent<NpcSitPose>();
+            _sitPose.Bind(_animator);
 
             if (tintMaterial)
             {
@@ -166,15 +172,26 @@ namespace PeduliTransit.NPC
                 transform.localScale = sitting
                     ? new Vector3(0.7f, 0.55f, 0.7f)
                     : new Vector3(0.7f, 0.9f, 0.7f);
+                if (_sitPose != null)
+                    _sitPose.Stand();
+                return;
+            }
+
+            if (sitting)
+            {
+                Vector3 surface = AssignedSeat != null
+                    ? AssignedSeat.SitSurfaceWorld
+                    : transform.position + Vector3.up * 0.45f;
+                Vector3 forward = AssignedSeat != null
+                    ? AssignedSeat.SitForward
+                    : transform.forward;
+                _sitPose?.Sit(surface, forward);
             }
             else
             {
-
-                var pos = transform.position;
-                pos.y = sitting ? 0.15f : 0f;
-
-                if (sitting)
-                    transform.position = new Vector3(pos.x, Mathf.Min(pos.y, 0.2f), pos.z);
+                _sitPose?.Stand();
+                if (_animator != null)
+                    _animator.enabled = true;
             }
         }
 
@@ -185,19 +202,34 @@ namespace PeduliTransit.NPC
             if (_animator == null || _animator.runtimeAnimatorController == null)
                 return;
 
-            if (walking)
+            if (IsSitting)
             {
-                int hash = Animator.StringToHash("HumanF@Walk01_Forward");
-                if (_animator.HasState(0, hash))
-                    _animator.Play(hash, 0, 0f);
-            }
-            else
-            {
-                _animator.speed = 0f;
+                _animator.enabled = false;
                 return;
             }
 
-            _animator.speed = 1f;
+            _animator.enabled = true;
+
+            if (walking)
+            {
+                int walkHash = Animator.StringToHash("HumanF@Walk01_Forward");
+                if (_animator.HasState(0, walkHash))
+                    _animator.Play(walkHash, 0, 0f);
+                _animator.speed = 1f;
+            }
+            else
+            {
+                int idleHash = Animator.StringToHash("HumanF@Idle01");
+                if (_animator.HasState(0, idleHash))
+                {
+                    _animator.Play(idleHash, 0, 0f);
+                    _animator.speed = 1f;
+                }
+                else
+                {
+                    _animator.speed = 0f;
+                }
+            }
         }
 
         public void WalkTo(Vector3 worldTarget, System.Action onArrive = null)
@@ -238,10 +270,40 @@ namespace PeduliTransit.NPC
             if (_moveTarget.HasValue)
             {
                 Vector3 target = _moveTarget.Value;
-                Vector3 flat = transform.position;
-                flat.y = target.y;
-                Vector3 next = Vector3.MoveTowards(transform.position, target, walkSpeed * Time.deltaTime);
-                transform.position = next;
+                Vector3 from = transform.position;
+                Vector3 to = Vector3.MoveTowards(from, target, walkSpeed * Time.deltaTime);
+                to.y = target.y;
+
+                // Simple collision: don't walk through walls / solid props.
+                Vector3 delta = to - from;
+                float dist = delta.magnitude;
+                if (dist > 0.0001f)
+                {
+                    Vector3 dir = delta / dist;
+                    if (Physics.CapsuleCast(
+                            from + Vector3.up * 0.3f,
+                            from + Vector3.up * 1.2f,
+                            0.18f,
+                            dir,
+                            out RaycastHit hit,
+                            dist + 0.05f,
+                            ~0,
+                            QueryTriggerInteraction.Ignore))
+                    {
+                        if (hit.collider != null && !hit.collider.transform.IsChildOf(transform))
+                        {
+                            // Stop short of the obstacle; mark arrived so routines don't hang forever.
+                            _moveTarget = null;
+                            SetWalking(false);
+                            var blockedCb = _onArrive;
+                            _onArrive = null;
+                            blockedCb?.Invoke();
+                            return;
+                        }
+                    }
+                }
+
+                transform.position = to;
                 FaceToward(target);
 
                 if (Vector3.Distance(transform.position, target) <= 0.3f)
@@ -253,10 +315,7 @@ namespace PeduliTransit.NPC
                     _onArrive = null;
                     cb?.Invoke();
                 }
-
-                return;
             }
-
         }
 
         void EnsureLabel(string text)
