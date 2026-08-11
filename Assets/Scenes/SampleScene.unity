@@ -458,7 +458,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   krlInteriorPrefab: {fileID: 1886863802916615385, guid: 76267f5e75d680f44bcbdd80a1f33d27, type: 3}
   busInteriorPrefab: {fileID: 2285518364327165311, guid: ff19935309d87384387c06e0969b853e, type: 3}
-  angkutanInteriorPrefab: {fileID: 0}
+  angkutanInteriorPrefab: {fileID: 8882901353427574586, guid: 41c79bdd701bdf5489576a3a4bfc6787, type: 3}
   interiorAnchor: {fileID: 100000142}
   playerSpawn: {fileID: 100000152}
 --- !u!1 &100000091
